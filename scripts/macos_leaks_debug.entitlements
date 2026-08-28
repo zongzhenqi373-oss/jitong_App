@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 仅用于 build-leaks 中的临时测试二进制，允许 Apple 的 leaks 工具获取 task port。 -->
+    <key>com.apple.security.get-task-allow</key>
+    <true/>
+</dict>
+</plist>

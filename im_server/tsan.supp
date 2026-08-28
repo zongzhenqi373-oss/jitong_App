@@ -1,0 +1,8 @@
+# TSan 抑制清单：asio + kqueue 的已知良性报告。
+# 原因：descriptor_state 的发布经 kqueue 内核对象（EV_ADD）同步，
+# TSan 无法建模穿越内核的 happens-before；且 conditionally_enabled_mutex
+# 的 enabled_ 字节在同一 reactor 内恒为同值，无行为影响。
+# 依据：asio 官方文档保证"单 io_context 多线程 run()"为安全模式。
+race:asio::detail::conditionally_enabled_mutex
+race:asio::detail::kqueue_reactor
+race:asio::detail::scheduler

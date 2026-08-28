@@ -1,0 +1,253 @@
+// IM 通信协议定义（proto3）
+// 线格式：[4B 大端包长][4B 协议类型(小端 protType)][protobuf payload]
+// 协议类型常量见 client_core/include/client_core/Protocol.h（与服务端 def.h 一致）
+//
+// 重新生成 C++ 代码（生成物提交于 protocol/generated/，供 CMake/VS/qmake 共用）：
+//   protoc --cpp_out=generated im.proto
+// 注意：protoc 主版本需与各端链接的 protobuf 运行时主版本一致。
+
+syntax = "proto3";
+
+package im.proto;
+
+// ---------------- 注册 ----------------
+message RegisterRq {
+  string nick = 1;  // UTF-8，上限见 proto::USER_NICK_LEN
+  string tel = 2;
+  string pass = 3;
+}
+
+message RegisterRs {
+  int32 result = 1; // proto::REGISTER_SUCC / REGISTER_NICK_EXIT / REGISTER_TEL_EXIT
+}
+
+// ---------------- 登录 ----------------
+message LoginRq {
+  string tel = 1;
+  string pass = 2;
+  string device_id = 3;   // device_id 和 device_name 用于设备标识
+  string device_name = 4;
+  string client_version = 5;  // client_version 用于客户端版本标识
+}
+
+message LoginRs {
+  int32 userid = 1;
+  int32 result = 2; // proto::LOGIN_SUCCESS / LOGIN_NOTEXIT / LOGIN_PASSERROR
+  string access_token = 3;   // access_token 和 refresh_token 用于刷新 token
+  string refresh_token = 4;
+  int64 access_token_expire_at = 5;   // access_token 和 refresh_token 的过期时间
+  int64 refresh_token_expire_at = 6;
+  string session_id = 7;    // session_id 用于会话标识
+}
+
+// ----------------Token刷新 ----------------
+message RefreshTokenRq {
+  string refresh_token = 1;
+  string device_id = 2;   // device_id 设备标识
+  string request_id = 3;  //请求id用于标识请求
+}
+
+message RefreshTokenRs {
+  int32 result = 1; // proto::REFRESH_TOKEN_SUCCESS / REFRESH_TOKEN_FAIL
+  string access_token = 2;
+  string refresh_token = 3;
+  int64 access_token_expire_at = 4;
+  int64 refresh_token_expire_at = 5;
+  string session_id = 6;
+}
+
+// ---------------- Token登录 ----------------
+message TokenLoginRq {
+  string access_token = 1;
+  string device_id = 3;   // device_id 设备标识
+  string request_id = 4;  //请求id用于标识请求
+}
+
+message TokenLoginRs {
+  int32 result = 1; // proto::LOGIN_SUCCESS / LOGIN_NOTEXIT / LOGIN_PASSERROR
+  int32 userid = 2;
+  int64 access_token_expire_at = 3;   // access_token 的过期时间
+}
+
+// ---------------- 登出 ----------------
+message LogoutRq {
+  string refresh_token = 1;
+  string device_id = 2;   // device_id 设备标识
+  bool logout_all_devices = 3;
+}
+
+message LogoutRs {
+  int32 result = 1; // proto::LOGOUT_SUCCESS / LOGOUT_FAIL
+}
+
+// ---------------- 用户/好友信息 ----------------
+// 登录成功后服务端逐条下发：userid == 自己 id 表示本人资料，否则为好友
+message FriendInfo {
+  int32 userid = 1;
+  int32 iconid = 2;
+  int32 status = 3;   // proto::STATUS_ONLINE / STATUS_OFFLINE
+  string nick = 4;    // UTF-8
+  string feeling = 5; // UTF-8
+}
+
+// ---------------- 聊天 ----------------
+// 消息类型（FILE 为 M7 文件传输预留）
+enum MsgType {
+  TEXT = 0;
+  IMAGE = 1;
+  FILE = 2;
+}
+
+// C→S：我发给好友；S→C：好友发给我 / 离线消息补发（此时 myid=发送方, friid=我）
+message ChatInfoRq {
+  int32 myid = 1;
+  int32 friid = 2;
+  string msg = 3;           // TEXT 时使用，UTF-8，软上限 proto::CHAT_MSG_LEN
+  MsgType type = 4;         // 消息类型
+  reserved 5;                // 曾用于内联 image_data 字节（≤500KB），已废弃：
+  reserved "image_data";     // 图片/文件统一走 HTTP 文件服务上传，字段号不再回收复用
+  int32 image_width = 6;
+  int32 image_height = 7;
+  string msg_id = 8;        // 客户端生成 UUID，漫游/去重/回执关联用
+  int64 ts = 9;             // 消息发送时间（秒，服务端权威时钟）。在线转发/离线补发均带回，接收方据此排序，避免用"收到时刻"导致时序错乱
+  int64 seq = 10;           // 会话级单调递增序列号（服务端按 conversation 分配）。接收方按 seq 排序，保证 C2C 严格顺序、可做空洞检测
+  string file_name = 11;   // type=FILE/IMAGE 时：文件名
+  int64  file_size = 12;   // type=FILE/IMAGE 时：字节数
+  string file_id = 13;     // type=FILE/IMAGE 时：HTTP 文件服务的下载标识
+                            // （下载地址由客户端自行拼接 /api/v1/download/{file_id}，不落地存 URL）
+  string content_type = 14; // MIME 类型，服务端在 HTTP 上传时嗅探/记录
+  string sha256 = 15;       // 整文件哈希（小写 hex），服务端在 HTTP 上传时计算
+}
+
+// S→C：发送结果回执（myid=接收方朋友, friid=自己）
+message ChatInfoRs {
+  int32 myid = 1;
+  int32 friid = 2;
+  int32 result = 3; // proto::CHAT_RESULT_SUCC / CHAT_RESULT_FAIL
+  string msg_id = 4; // 回执关联的发送消息 id
+  int64 seq = 5;     // 服务端为该消息分配的会话级 seq，发送方据此校正本地消息顺序
+}
+
+// ---------------- 添加好友 ----------------
+message AddFriendRq {
+  int32 myid = 1;
+  string mynick = 2;  // UTF-8
+  string frinick = 3; // UTF-8，要添加的好友昵称
+}
+
+message AddFriendRs {
+  int32 result = 1;     // proto::ADD_FRIEND_AGREE / REJECT / OFFLINE / NOTEXIT
+  int32 destid = 2;     // 请求发起人
+  string destnick = 3;  // UTF-8
+  int32 myid = 4;       // 回复人（被添加方）
+  string mynick = 5;    // UTF-8
+}
+
+// “新的朋友”列表：同时包含别人发给我的、以及我发出但尚未处理的申请。
+message FriendRequestListRq {}
+
+message FriendRequestItem {
+  int32 requester_id = 1;
+  int32 target_id = 2;
+  string requester_nick = 3;
+  string target_nick = 4;
+  int64 created_at = 5;
+}
+
+message FriendRequestListRs {
+  repeated FriendRequestItem requests = 1;
+}
+
+// ---------------- 删除好友 ----------------
+message DeleteFriendRq {
+  int32 friend_id = 1; // 只传目标好友；操作者身份以服务端登录 Session 为准
+}
+
+message DeleteFriendRs {
+  int32 result = 1;
+  int32 friend_id = 2; // 当前客户端应从好友列表移除的用户 id
+  int32 operator_id = 3;       // 发出请求的用户id
+  string operator_nick = 4;
+}
+
+
+
+// ---------------- 下线通知 ----------------
+// C→S：告知自己下线；S→C：转发给在线好友
+message FriendOffline {
+  int32 offlineid = 1;
+}
+
+// ---------------- 文件/图片传输（M7 → HTTP 化） ----------------
+// 分片协议（FileOfferRq/FileChunkRq/FileCompleteRq/FileProgressRs/FileDownloadRq，
+// 原协议号 1017-1022）已废弃、整体迁移到独立的 HTTPS 文件服务（im_server/src/HttpFileServer）：
+// 客户端先 POST /api/v1/upload 拿到 file_id，再发一条 ChatInfoRq(type=IMAGE/FILE, file_id=...)
+// 作为"已就绪"通知（复用现有的在线转发/离线补发/漫游链路），下载走 GET /api/v1/download/{file_id}
+// （原生支持 Range 续传）。协议号 1017-1022 不再回收复用，见 client_core/include/client_core/Protocol.h。
+
+// ---------------- 消息漫游（M6） ----------------
+// 换设备/重装后本地库空，登录后从服务端拉回历史。独立下行通道（QoS 隔离、避免队头阻塞），
+// 消息体复用 ChatInfoRq（同一张 messages 表、同一套 msg_id 去重、同一套会话 seq 排序）。
+
+// C→S：登录后拉每会话最后一条（会话列表预览）。myid 仅占位，服务端以 session 登录态为准。
+message RoamConvRq {
+  int32 myid = 1;
+}
+
+// S→C：会话列表预览。每条复用 ChatInfoRq；图片/文件消息只带 file_id/file_name 等元数据，
+// 客户端按需向 HTTP 文件服务发起下载，不在协议包里带媒体字节。
+message RoamConvRs {
+  repeated ChatInfoRq convs = 1;
+}
+
+// C→S：拉某会话比 before_seq 更早的 limit 条。首次传极大值(拉最新)，上拉传当前已加载最小 seq。
+message RoamMsgRq {
+  int32 myid = 1;       // 占位，服务端以 session 登录态为准
+  int32 peer_id = 2;    // 会话对端 id
+  int64 before_seq = 3; // 游标：seq < before_seq
+  int32 limit = 4;      // 本批数量 N
+}
+
+// S→C：会话历史分页。图片/文件消息同样只带元数据，媒体字节按需走 HTTP 文件服务下载。
+message RoamMsgRs {
+  int32 peer_id = 1;
+  repeated ChatInfoRq msgs = 2; // 服务端 seq 倒序返回；客户端落地后按 seq 升序
+  bool has_more = 3;            // 是否还有更早的（本批返回条数 == limit 即认为有）
+  int64 min_seq = 4;           // 本批最小 seq（下次上拉游标）
+}
+
+// ---------------- AI 辅助回复（服务端代理，API Key 不下发客户端） ----------------
+enum AiReplyStatus {
+  AI_REPLY_OK = 0;
+  AI_REPLY_INVALID_REQUEST = 1;
+  AI_REPLY_UNAUTHORIZED = 2;
+  AI_REPLY_NOT_FRIEND = 3;
+  AI_REPLY_RATE_LIMITED = 4;
+  AI_REPLY_BUSY = 5;
+  AI_REPLY_NOT_CONFIGURED = 6;
+  AI_REPLY_UPSTREAM_ERROR = 7;
+}
+
+// C→S：只提交会话对端，服务端以登录态为准并自行读取最近消息。
+message AiReplyRq {
+  string request_id = 1;       // 客户端 UUID，用于关联响应；最长 64 字节
+  int32 peer_id = 2;           // 当前单聊对端
+  string tone = 3;             // 可选：自然、正式、幽默等；最长 32 字节
+  int32 max_suggestions = 4;   // 1～3，默认 3
+}
+
+// S→C：候选内容仅用于 UI 展示，不会自动作为聊天消息发送。
+message AiReplyRs {
+  string request_id = 1;
+  AiReplyStatus status = 2;
+  repeated string suggestions = 3;
+  string error_message = 4;    // 面向客户端的安全错误，不包含 API Key/上游响应正文
+  bool partial = 5;            // 流式扩展预留：true 表示本包是增量
+  int32 chunk_index = 6;       // 流式扩展预留：从0递增
+  bool done = 7;               // 当前非流式实现恒为 true
+}
+
+// C→S：取消本地等待；服务端若尚未调用上游则跳过，已在调用则丢弃返回结果。
+message AiCancelRq {
+  string request_id = 1;
+}

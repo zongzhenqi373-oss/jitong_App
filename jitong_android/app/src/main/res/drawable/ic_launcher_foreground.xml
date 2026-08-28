@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 自适应图标安全区：机器人保持在中心 66%，避免圆形/水滴形桌面遮罩裁切。 -->
+    <item
+        android:left="18dp"
+        android:top="18dp"
+        android:right="18dp"
+        android:bottom="18dp">
+        <bitmap
+            android:src="@drawable/jitong_logo"
+            android:gravity="fill"
+            android:filter="true" />
+    </item>
+</layer-list>
