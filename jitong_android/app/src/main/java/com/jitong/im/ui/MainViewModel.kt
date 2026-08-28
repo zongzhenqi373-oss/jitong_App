@@ -174,11 +174,13 @@ class MainViewModel : ViewModel() {
     // ---------------- 登录 / 注册 ----------------
 
     fun login(tel: String, pass: String, remember: Boolean) {
-        if (tel.isBlank() || pass.isBlank()) {
-            _loginTip.value = "请输入手机号和密码"
+        val normalizedTel = tel.trim()
+        val validationError = validateCredentials(normalizedTel, pass)
+        if (validationError != null) {
+            _loginTip.value = validationError
             return
         }
-        lastTel = tel.trim()
+        lastTel = normalizedTel
         lastHash = sha256Hex(pass) // 仅供本地 DB 密钥派生使用
         Prefs.clearTokenSession()  // 显式密码登录视为开始一个新的认证会话
         Prefs.pendingRefreshRequestId = null
@@ -191,13 +193,24 @@ class MainViewModel : ViewModel() {
                 return@launch
             }
             _loginTip.value = "登录中…"
-            client.login(tel = tel.trim(), pass = pass, deviceId = Prefs.deviceId,)
+            client.login(tel = normalizedTel, pass = pass, deviceId = Prefs.deviceId,)
         }
     }
 
     fun register(nick: String, tel: String, pass: String) {
-        if (nick.isBlank() || tel.isBlank() || pass.isBlank()) {
-            _loginTip.value = "请填写完整注册信息"
+        val normalizedNick = nick.trim()
+        val normalizedTel = tel.trim()
+        if (normalizedNick.isEmpty()) {
+            _loginTip.value = "请输入昵称"
+            return
+        }
+        if (normalizedNick.toByteArray(Charsets.UTF_8).size >= 30) {
+            _loginTip.value = "昵称过长，请控制在 29 个字节以内"
+            return
+        }
+        val validationError = validateCredentials(normalizedTel, pass)
+        if (validationError != null) {
+            _loginTip.value = validationError
             return
         }
         viewModelScope.launch {
@@ -207,8 +220,16 @@ class MainViewModel : ViewModel() {
                 return@launch
             }
             _loginTip.value = "注册中…"
-            client.register(nick.trim(), tel.trim(), pass)
+            client.register(normalizedNick, normalizedTel, pass)
         }
+    }
+
+    private fun validateCredentials(tel: String, pass: String): String? {
+        if (!tel.matches(Regex("^1[3-9]\\d{9}$"))) return "请输入正确的 11 位手机号"
+        // 兼容项目现有的 6 位演示账号；新生产系统建议提升到至少 8 位。
+        if (pass.length !in 6..64) return "密码长度应为 6～64 个字符"
+        if (pass.isBlank()) return "密码不能全部为空格"
+        return null
     }
 
     // ---------------- 导航 ----------------
@@ -625,7 +646,9 @@ class MainViewModel : ViewModel() {
                     _loginTip.value = when (e.result) {
                         Protocol.REGISTER_SUCC -> "注册成功，请登录"
                         Protocol.REGISTER_NICK_EXIT -> "注册失败：昵称已存在"
-                        else -> "注册失败：手机号已存在"
+                        Protocol.REGISTER_TEL_EXIT -> "注册失败：手机号已存在"
+                        Protocol.REGISTER_INVALID -> "注册失败：手机号或密码格式不正确"
+                        else -> "注册失败：服务器错误"
                     }
                 }
 
@@ -665,6 +688,7 @@ class MainViewModel : ViewModel() {
                         loadFriendRequests()
                     }
                     Protocol.LOGIN_NOTEXIT -> _loginTip.value = "登录失败：用户不存在"
+                    Protocol.LOGIN_INVALID -> _loginTip.value = "登录失败：手机号或密码格式不正确"
                     else -> _loginTip.value = "登录失败：密码错误"
                 }
 

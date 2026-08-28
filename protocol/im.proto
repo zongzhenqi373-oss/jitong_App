@@ -18,7 +18,7 @@ message RegisterRq {
 }
 
 message RegisterRs {
-  int32 result = 1; // proto::REGISTER_SUCC / REGISTER_NICK_EXIT / REGISTER_TEL_EXIT
+  int32 result = 1; // proto::REGISTER_SUCC / REGISTER_NICK_EXIT / REGISTER_TEL_EXIT / REGISTER_INVALID
 }
 
 // ---------------- 登录 ----------------
@@ -32,7 +32,7 @@ message LoginRq {
 
 message LoginRs {
   int32 userid = 1;
-  int32 result = 2; // proto::LOGIN_SUCCESS / LOGIN_NOTEXIT / LOGIN_PASSERROR
+  int32 result = 2; // proto::LOGIN_SUCCESS / LOGIN_NOTEXIT / LOGIN_PASSERROR / LOGIN_INVALID
   string access_token = 3;   // access_token 和 refresh_token 用于刷新 token
   string refresh_token = 4;
   int64 access_token_expire_at = 5;   // access_token 和 refresh_token 的过期时间

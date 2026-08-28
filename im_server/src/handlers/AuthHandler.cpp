@@ -10,9 +10,26 @@
 #include "im.pb.h"
 
 #include <vector>
+#include <algorithm>
+#include <cctype>
 
 namespace imsrv {
 using namespace im::proto;
+
+namespace {
+bool validMainlandMobile(const std::string& tel)
+{
+    return tel.size() == 11 && tel[0] == '1' && tel[1] >= '3' && tel[1] <= '9' &&
+        std::all_of(tel.begin(), tel.end(), [](unsigned char ch) { return std::isdigit(ch) != 0; });
+}
+
+bool validSha256Proof(const std::string& proof)
+{
+    return proof.size() == 64 && std::all_of(proof.begin(), proof.end(), [](unsigned char ch) {
+        return std::isdigit(ch) != 0 || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
+    });
+}
+} // namespace
 
 AuthHandler::AuthHandler(Database& db, Presence& presence, TokenService& tokens)
     : m_db(db), m_presence(presence), m_tokens(tokens)
@@ -23,9 +40,16 @@ void AuthHandler::onRegister(const std::shared_ptr<Session>& session, const std:
 {
     RegisterRq rq;
     if (!handlers::parsePayload(payload, rq)) return;
+    if (rq.nick().empty() || rq.nick().size() >= USER_NICK_LEN ||
+        !validMainlandMobile(rq.tel()) || !validSha256Proof(rq.pass())) {
+        RegisterRs rs;
+        rs.set_result(REGISTER_INVALID);
+        session->deliver(DEF_PROT_REGISTER_RS, rs.SerializeAsString());
+        log("[认证] 拒绝非法注册参数");
+        return;
+    }
     const int result = m_db.registerUser(
-        utf8Truncate(rq.nick(), USER_NICK_LEN - 1),
-        utf8Truncate(rq.tel(), USER_TEL_LEN - 1), rq.pass());
+        rq.nick(), rq.tel(), rq.pass());
     RegisterRs rs;
     rs.set_result(result);
     session->deliver(DEF_PROT_REGISTER_RS, rs.SerializeAsString());
@@ -79,9 +103,17 @@ void AuthHandler::onLogin(const std::shared_ptr<Session>& session, const std::st
     LoginRq rq;
     if (!handlers::parsePayload(payload, rq)) return;
 
+    if (!validMainlandMobile(rq.tel()) || !validSha256Proof(rq.pass())) {
+        LoginRs rs;
+        rs.set_result(LOGIN_INVALID);
+        session->deliver(DEF_PROT_LOGIN_RS, rs.SerializeAsString());
+        log("[认证] 拒绝非法登录参数");
+        return;
+    }
+
     int userId = 0;
     const int result = m_db.loginUser(
-        utf8Truncate(rq.tel(), USER_TEL_LEN - 1), rq.pass(), userId);
+        rq.tel(), rq.pass(), userId);
     if (result != LOGIN_SUCCESS) {
         LoginRs rs;
         rs.set_result(result);

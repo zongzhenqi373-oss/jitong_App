@@ -52,12 +52,12 @@ fun LoginScreen(vm: MainViewModel) {
             Spacer(Modifier.height(18.dp))
 
             if (tab == 1) {
-                JitongField(nick, { nick = it }, "昵称")
+                JitongField(nick, { nick = it }, "昵称", maxLength = 20)
                 Spacer(Modifier.height(12.dp))
             }
-            JitongField(tel, { tel = it }, "手机号", KeyboardType.Phone)
+            JitongField(tel, { tel = it.filter(Char::isDigit) }, "手机号", KeyboardType.Phone, maxLength = 11)
             Spacer(Modifier.height(12.dp))
-            JitongField(pass, { pass = it }, "密码", KeyboardType.Password, true)
+            JitongField(pass, { pass = it }, "密码（6～64 位）", KeyboardType.Password, true, 64)
             Spacer(Modifier.height(12.dp))
 
             if (tab == 0) {
@@ -99,10 +99,11 @@ private fun JitongField(
     label: String,
     keyboardType: KeyboardType = KeyboardType.Text,
     password: Boolean = false,
+    maxLength: Int = Int.MAX_VALUE,
 ) {
     OutlinedTextField(
         value = value,
-        onValueChange = onValueChange,
+        onValueChange = { if (it.length <= maxLength) onValueChange(it) },
         placeholder = { Text(label) },
         singleLine = true,
         visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,

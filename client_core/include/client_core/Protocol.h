@@ -75,10 +75,12 @@ constexpr std::size_t CHAT_MSG_LEN     = 1024 * 8; // 8KB
 constexpr int REGISTER_SUCC      = 1;
 constexpr int REGISTER_NICK_EXIT = 2;
 constexpr int REGISTER_TEL_EXIT  = 3;
+constexpr int REGISTER_INVALID   = 4;
 
 constexpr int LOGIN_SUCCESS   = 0;
 constexpr int LOGIN_NOTEXIT   = 1;
 constexpr int LOGIN_PASSERROR = 2;
+constexpr int LOGIN_INVALID   = 3;
 
 constexpr int STATUS_ONLINE  = 0;
 constexpr int STATUS_OFFLINE = 1;

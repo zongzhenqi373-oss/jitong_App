@@ -51,10 +51,12 @@ object Protocol {
     const val REGISTER_SUCC = 1
     const val REGISTER_NICK_EXIT = 2
     const val REGISTER_TEL_EXIT = 3
+    const val REGISTER_INVALID = 4
 
     const val LOGIN_SUCCESS = 0
     const val LOGIN_NOTEXIT = 1
     const val LOGIN_PASSERROR = 2
+    const val LOGIN_INVALID = 3
     const val REFRESH_TOKEN_SUCCESS = 0
     const val REFRESH_TOKEN_FAIL = 1
     const val LOGOUT_SUCCESS = 0
