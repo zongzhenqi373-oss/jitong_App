@@ -1,5 +1,5 @@
 // im_server 入口
-// 用法: im_server [port] [dbPath] [certPath] [keyPath] [httpPort]
+// 用法: im_server [port] [dbPath] [certPath] [keyPath] [httpPort] [appIdentityPrivateKey]
 //   默认 port=24563, dbPath=data/im.db（上传目录 uploads/），httpPort=port+1（文件服务）
 #include <cstdlib>
 #include <iostream>
@@ -12,8 +12,10 @@ int main(int argc, char* argv[])
     const std::string certPath = argc > 3 ? argv[3] : IM_SERVER_DEFAULT_CERT;
     const std::string keyPath = argc > 4 ? argv[4] : IM_SERVER_DEFAULT_KEY;
     const std::uint16_t httpPort = argc > 5 ? static_cast<std::uint16_t>(std::atoi(argv[5])) : static_cast<std::uint16_t>(port + 1);
+    const std::string appIdentityKeyPath = argc > 6 ? argv[6] : IM_SERVER_DEFAULT_APP_IDENTITY_KEY;
 
-    imsrv::Server server(port, /*ioThreads=*/4, /*dbWorkers=*/2, dbPath, "uploads", certPath, keyPath, httpPort);
+    imsrv::Server server(port, /*ioThreads=*/4, /*dbWorkers=*/2, dbPath, "uploads", certPath, keyPath,
+                         httpPort, appIdentityKeyPath, 1);
     if (!server.start()) {
         std::cerr << "启动失败" << std::endl;
         return 1;

@@ -31,6 +31,7 @@ const char* TEST_DB = "/tmp/im_server_e2e.db";
 const char* TEST_UPLOADS = "/tmp/im_server_e2e_uploads";
 const std::string TEST_CERT = IM_SERVER_TEST_CERT;
 const std::string TEST_KEY = IM_SERVER_TEST_KEY;
+const std::string TEST_APP_IDENTITY_KEY = IM_SERVER_TEST_APP_IDENTITY_KEY;
 const std::string TEST_SERVERNAME = "im.example.com";
 const im::ClientConfig testConfig{TEST_SERVERNAME, TEST_CERT};
 
@@ -119,7 +120,7 @@ int main()
     std::remove((std::string(TEST_DB) + "-shm").c_str());
 
     imsrv::Server server(TEST_PORT, 2, 2, TEST_DB, TEST_UPLOADS, TEST_CERT, TEST_KEY,
-                          static_cast<std::uint16_t>(TEST_PORT + 1));
+                          static_cast<std::uint16_t>(TEST_PORT + 1), TEST_APP_IDENTITY_KEY, 1);
     assert(server.start());
     std::this_thread::sleep_for(std::chrono::milliseconds(300)); // 等监听就绪
 

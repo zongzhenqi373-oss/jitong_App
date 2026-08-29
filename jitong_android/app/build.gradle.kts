@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId = "com.jitong.im"
-        minSdk = 26
+        minSdk = 33
         targetSdk = 34
         versionCode = 1
         versionName = "0.5.0" // M4+：默认直连/头像/资料卡/图片收发（+面板）
@@ -73,6 +73,9 @@ dependencies {
     implementation("com.google.protobuf:protobuf-javalite:3.25.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Android 系统 Conscrypt 在部分 API 34 镜像中不暴露 Ed25519 KeyFactory。
+    // 使用 BC 轻量级 API完成应用层 ServerHello 身份签名验证，不替换系统 TLS Provider。
+    implementation("org.bouncycastle:bcprov-jdk18on:1.77")
 
     // Room：消息/会话本地库（FTS4 独立存储，同事务双写）
     implementation("androidx.room:room-runtime:2.6.1")

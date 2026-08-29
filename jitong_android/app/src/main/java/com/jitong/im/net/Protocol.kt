@@ -42,6 +42,23 @@ object Protocol {
     const val DELETE_FRIEND_RS  = DEF_BASE + 33
     const val FRIEND_REQUEST_LIST_RQ = DEF_BASE + 34
     const val FRIEND_REQUEST_LIST_RS = DEF_BASE + 35
+    const val APP_CLIENT_HELLO = DEF_BASE + 36
+    const val APP_SERVER_HELLO = DEF_BASE + 37
+    const val APP_CLIENT_FINISHED = DEF_BASE + 38
+    const val APP_SERVER_FINISHED = DEF_BASE + 39
+    const val APP_ENCRYPTED_FRAME = DEF_BASE + 40
+
+    const val APP_SECURITY_VERSION = 1
+    const val APP_CIPHER_SUITE_V1 = 1
+    const val APP_X25519_KEY_LEN = 32
+    const val APP_NONCE_LEN = 32
+    const val APP_RANDOM_ID_LEN = 16
+    const val APP_SESSION_ID_LEN = 16
+    const val APP_ED25519_SIGNATURE_LEN = 64
+    const val APP_FINISHED_LEN = 32
+    const val APP_GCM_TAG_LEN = 16
+    const val APP_GCM_NONCE_LEN = 12
+    const val APP_MAX_HANDSHAKE_PAYLOAD = 1024
 
 
     /** 单包最大长度（含 4B 协议号），防恶意超大包 OOM */

@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <iostream>
 #include <openssl/ssl.h>
+#include <openssl/pem.h>
 #include <ctime>
 
 namespace imsrv {
@@ -21,7 +22,8 @@ using im::proto::DEF_PROT_TOKEN_REFRESH_RQ;
 
 Server::Server(std::uint16_t port, int ioThreadCount, int dbWorkers,
                std::string dbPath, std::string uploadDir,std::string certPath,
-               std::string keyPath, std::uint16_t httpPort)
+               std::string keyPath, std::uint16_t httpPort,
+               std::string appIdentityKeyPath, std::uint32_t appIdentityKeyId)
     : m_port(port)
     , m_ioThreadCount(ioThreadCount > 0 ? ioThreadCount : 4)
     , m_dbWorkers(dbWorkers > 0 ? dbWorkers : 2)
@@ -30,6 +32,8 @@ Server::Server(std::uint16_t port, int ioThreadCount, int dbWorkers,
     , m_certPath(std::move(certPath))
     , m_keyPath(std::move(keyPath))
     , m_httpPort(httpPort)
+    , m_appIdentityKeyPath(std::move(appIdentityKeyPath))
+    , m_appIdentityKeyId(appIdentityKeyId)
     , m_sslContext(asio::ssl::context::tls_server)
     , m_acceptor(m_io)
     , m_signals(m_io)
@@ -44,6 +48,38 @@ Server::~Server()
 
 bool Server::start()
 {
+    if (m_appIdentityKeyPath.empty() || m_appIdentityKeyId == 0) {
+        log("[APP-SEC] 应用身份私钥路径或key_id未配置，拒绝启动");
+        return false;
+    }
+    FILE* identityFile = std::fopen(m_appIdentityKeyPath.c_str(), "rb");
+    if (!identityFile) {
+        log("[APP-SEC] 无法打开应用身份私钥 path=", m_appIdentityKeyPath);
+        return false;
+    }
+    EVP_PKEY* loadedIdentity = PEM_read_PrivateKey(identityFile, nullptr, nullptr, nullptr);
+    std::fclose(identityFile);
+    if (!loadedIdentity || EVP_PKEY_base_id(loadedIdentity) != EVP_PKEY_ED25519) {
+        if (loadedIdentity) EVP_PKEY_free(loadedIdentity);
+        log("[APP-SEC] 应用身份私钥不是有效Ed25519 PEM，拒绝启动");
+        return false;
+    }
+    std::size_t identitySize = 0;
+    if (EVP_PKEY_get_raw_private_key(loadedIdentity, nullptr, &identitySize) != 1 || identitySize != 32) {
+        EVP_PKEY_free(loadedIdentity);
+        log("[APP-SEC] 无法导出Ed25519私钥种子，拒绝启动");
+        return false;
+    }
+    m_appIdentityPrivateKey.resize(identitySize);
+    if (EVP_PKEY_get_raw_private_key(loadedIdentity, m_appIdentityPrivateKey.data(), &identitySize) != 1) {
+        EVP_PKEY_free(loadedIdentity);
+        crypto::secureClear(m_appIdentityPrivateKey);
+        log("[APP-SEC] 读取Ed25519私钥失败，拒绝启动");
+        return false;
+    }
+    EVP_PKEY_free(loadedIdentity);
+    log("[APP-SEC] 已加载应用身份密钥 keyId=", m_appIdentityKeyId);
+
     SSL_CTX* native = m_sslContext.native_handle();
 
     if (SSL_CTX_set_min_proto_version(native, TLS1_3_VERSION) != 1 ||
@@ -204,6 +240,7 @@ void Server::stop()
         if (t.joinable()) t.join();
     }
     if (m_hbThread.joinable()) m_hbThread.join();
+    crypto::secureClear(m_appIdentityPrivateKey);
     log("[server] 已关停");
 }
 

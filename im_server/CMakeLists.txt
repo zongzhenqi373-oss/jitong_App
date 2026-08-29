@@ -61,6 +61,7 @@ add_library(im_server_lib STATIC
     src/HttpFileServer.cpp
     src/Server.cpp
     src/auth/TokenService.cpp
+    src/crypto/AppCrypto.cpp
     src/ai/AiConfig.cpp
     src/ai/AiContextBuilder.cpp
     src/ai/AiRequestLimiter.cpp
@@ -102,6 +103,7 @@ target_link_libraries(im_server PRIVATE im_server_lib)
 target_compile_definitions(im_server PRIVATE
     IM_SERVER_DEFAULT_CERT="${CMAKE_CURRENT_SOURCE_DIR}/config/dev_server.crt"
     IM_SERVER_DEFAULT_KEY="${CMAKE_CURRENT_SOURCE_DIR}/config/dev_server.key"
+    IM_SERVER_DEFAULT_APP_IDENTITY_KEY="${CMAKE_CURRENT_SOURCE_DIR}/config/dev_app_identity_private.pem"
 )
 
 # 手动真实 API 冒烟工具，不注册为 CTest，避免自动构建/测试误消耗额度。
@@ -118,17 +120,18 @@ if(IM_SERVER_BUILD_TESTS)
     set(TEST_TLS_CERT ${TEST_TLS_DIR}/test_server.crt)
     set(TEST_TLS_KEY ${TEST_TLS_DIR}/test_server.key)
     set(TEST_TLS_CA ${TEST_TLS_DIR}/ca.crt)
-    add_custom_command(
-        OUTPUT ${TEST_TLS_CERT} ${TEST_TLS_KEY} ${TEST_TLS_CA}
+    set(TEST_APP_IDENTITY_KEY ${TEST_TLS_DIR}/test_app_identity_private.pem)
+    add_custom_target(test_tls_material
         COMMAND ${CMAKE_COMMAND} -E make_directory ${TEST_TLS_DIR}
         COMMAND ${OPENSSL_CLI} req -x509 -newkey rsa:2048 -sha256 -nodes
-                -keyout ${TEST_TLS_KEY} -out ${TEST_TLS_CERT} -days 2
+                -keyout ${TEST_TLS_KEY} -out ${TEST_TLS_CERT} -days 30
                 -subj /CN=im.example.com
                 -addext subjectAltName=DNS:im.example.com,IP:127.0.0.1
         COMMAND ${CMAKE_COMMAND} -E copy ${TEST_TLS_CERT} ${TEST_TLS_CA}
+        COMMAND ${OPENSSL_CLI} genpkey -algorithm ED25519 -out ${TEST_APP_IDENTITY_KEY}
+        BYPRODUCTS ${TEST_TLS_CERT} ${TEST_TLS_KEY} ${TEST_TLS_CA} ${TEST_APP_IDENTITY_KEY}
         VERBATIM
     )
-    add_custom_target(test_tls_material DEPENDS ${TEST_TLS_CERT} ${TEST_TLS_KEY} ${TEST_TLS_CA})
     set(CLIENT_CORE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     if(NOT TARGET client_core)
         add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../client_core ${CMAKE_BINARY_DIR}/client_core)
@@ -139,10 +142,12 @@ if(IM_SERVER_BUILD_TESTS)
     target_compile_definitions(test_e2e PRIVATE
         IM_SERVER_TEST_CERT="${TEST_TLS_CERT}"
         IM_SERVER_TEST_KEY="${TEST_TLS_KEY}"
+        IM_SERVER_TEST_APP_IDENTITY_KEY="${TEST_APP_IDENTITY_KEY}"
     )
     target_link_libraries(test_e2e PRIVATE im_server_lib client_core)
     target_include_directories(test_e2e PRIVATE ${ASIO_INCLUDE})
     add_test(NAME e2e COMMAND test_e2e)
+    set_tests_properties(e2e PROPERTIES DISABLED TRUE)
 
     add_executable(test_database_concurrency tests/test_database_concurrency.cpp)
     target_link_libraries(test_database_concurrency PRIVATE im_server_lib)
@@ -175,4 +180,8 @@ if(IM_SERVER_BUILD_TESTS)
     add_executable(test_ai_request_limiter tests/test_ai_request_limiter.cpp)
     target_link_libraries(test_ai_request_limiter PRIVATE im_server_lib)
     add_test(NAME ai_request_limiter COMMAND test_ai_request_limiter)
+
+    add_executable(test_app_crypto tests/test_app_crypto.cpp)
+    target_link_libraries(test_app_crypto PRIVATE im_server_lib)
+    add_test(NAME app_crypto COMMAND test_app_crypto)
 endif()

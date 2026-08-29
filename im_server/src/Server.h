@@ -24,6 +24,7 @@
 #include "Database.h"
 #include "Presence.h"
 #include "auth/TokenService.h"
+#include "crypto/AppCrypto.h"
 
 namespace imsrv {
 
@@ -40,7 +41,9 @@ public:
            std::string uploadDir,
            std::string certPath,
            std::string keyPath,
-           std::uint16_t httpPort
+           std::uint16_t httpPort,
+           std::string appIdentityKeyPath = {},
+           std::uint32_t appIdentityKeyId = 1
         );
     ~Server();
 
@@ -60,6 +63,8 @@ public:
     Presence& presence() { return m_presence; }
     const std::string& uploadDir() const { return m_uploadDir; }
     HttpFileServer* httpFileServer() { return m_httpFileServer.get(); }
+    const crypto::Bytes& appIdentityPrivateKey() const { return m_appIdentityPrivateKey; }
+    std::uint32_t appIdentityKeyId() const { return m_appIdentityKeyId; }
 
     // 会话的业务 strand（构造 Session 时分配，同会话固定）
     using BizStrand = asio::strand<asio::thread_pool::executor_type>;
@@ -82,6 +87,9 @@ private:
     std::string m_certPath;
     std::string m_keyPath;
     std::uint16_t m_httpPort;
+    std::string m_appIdentityKeyPath;
+    std::uint32_t m_appIdentityKeyId;
+    crypto::Bytes m_appIdentityPrivateKey;
     asio::ssl::context m_sslContext;
 
     asio::io_context m_io;

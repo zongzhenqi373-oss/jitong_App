@@ -15,6 +15,8 @@
 #include <asio.hpp>
 #include <asio/ssl.hpp>
 
+#include "crypto/AppCrypto.h"
+
 namespace imsrv {
 
 class Server;
@@ -110,19 +112,38 @@ public:
     }
 
     void closeAfterWrite();
+    bool applicationSecure() const { return m_securityState == SecurityState::Established; }
 
 private:
+    enum class SecurityState {
+        TlsHandshake,
+        WaitClientHello,
+        WaitClientFinished,
+        Established,
+        Closed,
+    };
+
     void doReadHeader();
     void doReadBody(std::uint32_t bodyLen);
     void doWrite();
     void onClosed(); // 连接收尾（仅一次）
     void doHandshake();   //握手逻辑
+    void handleApplicationHandshake(std::uint32_t type, const std::string& payload);
+    void handleClientHello(const std::string& payload);
+    void handleClientFinished(const std::string& payload);
+    void handleEncryptedFrame(const std::string& payload);
+    std::string encryptBusinessFrame(std::uint32_t type, const std::string& payload);
+    void enqueueRawFrame(std::uint32_t type, const std::string& payload);
+    void failApplicationHandshake(const char* reason);
+    void startApplicationHandshakeTimeout();
+    const char* securityStateName() const;
 
     asio::ssl::stream<asio::ip::tcp::socket> m_streamsocket;
     // asio>=1.17 的 tcp::socket::executor_type 为 any_io_executor，strand 类型须匹配
     asio::strand<asio::any_io_executor> m_strand; // IO strand：读写处理器串行
     std::shared_ptr<asio::strand<asio::thread_pool::executor_type>> m_biz; // 业务 strand
     Server& m_server;
+    asio::steady_timer m_handshakeTimer;
     bool m_closeAfterWrite = false;
 
     std::atomic<int> m_userId{0};  // 业务 strand 写、io 线程读
@@ -136,6 +157,18 @@ private:
     std::string m_deviceId;
     std::atomic<std::int64_t>
     m_accessExpiresAt{0};
+
+    SecurityState m_securityState = SecurityState::TlsHandshake;
+    crypto::Bytes m_transcriptHash;
+    crypto::Bytes m_clientFinishedKey;
+    crypto::Bytes m_serverFinishedKey;
+    crypto::Bytes m_clientToServerKey;
+    crypto::Bytes m_serverToClientKey;
+    crypto::Bytes m_clientNoncePrefix;
+    crypto::Bytes m_serverNoncePrefix;
+    crypto::Bytes m_appSessionId;
+    std::uint64_t m_sendSequence = 0;
+    std::uint64_t m_receiveSequence = 0;
 };
 
 } // namespace imsrv

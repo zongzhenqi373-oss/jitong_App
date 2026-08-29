@@ -123,4 +123,21 @@ class ProtocolCodecTest {
         assertEquals("ai-uuid-1", Im.AiCancelRq.parseFrom(cancel.toByteArray()).requestId)
         assertEquals(Protocol.DEF_BASE + 31, Protocol.AI_CANCEL_RQ)
     }
+
+    @Test
+    fun `应用层安全通道协议号和字段长度定义一致`() {
+        assertEquals(Protocol.DEF_BASE + 36, Protocol.APP_CLIENT_HELLO)
+        assertEquals(Protocol.DEF_BASE + 40, Protocol.APP_ENCRYPTED_FRAME)
+        val hello = Im.AppClientHello.newBuilder()
+            .setVersion(Protocol.APP_SECURITY_VERSION)
+            .setClientEphemeralPublicKey(com.google.protobuf.ByteString.copyFrom(ByteArray(32) { 1 }))
+            .setClientNonce(com.google.protobuf.ByteString.copyFrom(ByteArray(32) { 2 }))
+            .setClientRandomId(com.google.protobuf.ByteString.copyFrom(ByteArray(16) { 3 }))
+            .setCipherSuite(Im.AppCipherSuite.APP_CIPHER_X25519_ED25519_HKDF_SHA256_AES_256_GCM)
+            .build()
+        val parsed = Im.AppClientHello.parseFrom(hello.toByteArray())
+        assertEquals(Protocol.APP_X25519_KEY_LEN, parsed.clientEphemeralPublicKey.size())
+        assertEquals(Protocol.APP_NONCE_LEN, parsed.clientNonce.size())
+        assertEquals(Protocol.APP_RANDOM_ID_LEN, parsed.clientRandomId.size())
+    }
 }

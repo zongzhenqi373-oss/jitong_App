@@ -136,6 +136,7 @@ class ImClient {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var socket: SSLSocket? = null
+    private var secureChannel: SecureChannel? = null
     private val writeLock = Mutex()
     private var heartbeatJob: kotlinx.coroutines.Job? = null
 
@@ -168,11 +169,15 @@ class ImClient {
 
                 sslSocket.startHandshake()
 
-                /**打印日志，握手成功*/
                 val tlsSession = sslSocket.session
+                // 必须在任何登录凭证或业务帧发出之前完成固定校验。
+                // 即使设备额外信任了恶意 CA，公钥不匹配也会在这里断开。
+                TlsPinning.verify(tlsSession)
+
+                /**打印日志，握手成功*/
                 android.util.Log.i(
                     "IM_TLS",
-                    "握手成功 " +
+                    "握手及 SPKI 固定校验成功 " +
                             "protocol=${tlsSession.protocol} " +
                             "cipher=${tlsSession.cipherSuite} " +
                             "peer=${tlsSession.peerHost}",
@@ -189,7 +194,15 @@ class ImClient {
                             "expires=${certificate?.notAfter}",
                 )
 
+                val establishedChannel = SecureChannel.establish(sslSocket)
+                android.util.Log.i(
+                    "IM_APP_SEC",
+                    "应用层安全握手成功 version=${Protocol.APP_SECURITY_VERSION} " +
+                        "sessionBytes=${establishedChannel.sessionId.size}",
+                )
+
                 socket = sslSocket
+                secureChannel = establishedChannel
                 connected = true
 
                 startHeartbeat()
@@ -200,8 +213,8 @@ class ImClient {
                 true
             } catch (e: Exception) {
                 android.util.Log.e(
-                    "IM_TLS",
-                    "TLS连接失败",
+                    "IM_APP_SEC",
+                    "TLS/SPKI/应用层握手失败",
                     e,
                 )
                 closeQuietly()
@@ -409,11 +422,17 @@ class ImClient {
         try {
             val input = DataInputStream(s.getInputStream())
             while (currentCoroutineContext().isActive) {
-                val frame = Frame.readFrom(input) ?: break
+                val outerFrame = Frame.readFrom(input) ?: break
+                val channel = secureChannel ?: throw java.io.IOException("安全通道未建立")
+                val frame = channel.decrypt(outerFrame)
+                android.util.Log.d(
+                    "IM_APP_SEC",
+                    "已认证解密业务帧 innerType=${frame.type} payloadBytes=${frame.payload.size}",
+                )
                 dispatch(frame)
             }
-        } catch (_: Exception) {
-            // 读异常（对端关闭/网络错误）统一走断连收尾
+        } catch (e: Exception) {
+            android.util.Log.e("IM_APP_SEC", "安全通道读取失败，连接已关闭", e)
         } finally {
             closeQuietly()
             _events.emit(Event.Disconnected)
@@ -580,16 +599,18 @@ class ImClient {
     // 所有发送集中走 IO 线程：UI 层在主线程直接调用也安全（NetworkOnMainThreadException 防护）
     private suspend fun send(type: Int, payload: ByteArray) = withContext(Dispatchers.IO) {
         val s = socket ?: throw java.io.IOException("未连接")
-        val bytes = Frame.encode(type, payload)
         writeLock.withLock {
+            val channel = secureChannel ?: throw java.io.IOException("安全通道未建立")
+            val encryptedFrame = channel.encrypt(type, payload)
+            val bytes = Frame.encode(encryptedFrame.type, encryptedFrame.payload)
             s.getOutputStream().write(bytes)
             s.getOutputStream().flush()
+            android.util.Log.d(
+                "IM_APP_SEC",
+                "业务帧已加密 innerType=$type outerType=${encryptedFrame.type} " +
+                    "plaintextBytes=${payload.size} encryptedBytes=${encryptedFrame.payload.size}",
+            )
         }
-        /**打印协议号和长度*/
-        android.util.Log.d(
-            "IM_TLS",
-            "发送业务帧 type=$type payloadBytes=${payload.size} transport=TLS",
-        )
     }
 
     private fun closeQuietly() {
@@ -600,6 +621,8 @@ class ImClient {
         } catch (_: Exception) {
         }
         socket = null
+        secureChannel?.destroy()
+        secureChannel = null
     }
 
     companion object {

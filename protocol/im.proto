@@ -251,3 +251,41 @@ message AiReplyRs {
 message AiCancelRq {
   string request_id = 1;
 }
+
+// ---------------- 应用层安全通道（v1） ----------------
+// 这些消息只定义线格式；阶段0-2尚未接入现有业务收发链路。
+// 后续启用时，TLS握手成功后必须先完成四步应用层握手，禁止降级为旧业务明文帧。
+enum AppCipherSuite {
+  APP_CIPHER_UNSPECIFIED = 0;
+  APP_CIPHER_X25519_ED25519_HKDF_SHA256_AES_256_GCM = 1;
+}
+
+message AppClientHello {
+  uint32 version = 1;                    // 固定为1
+  bytes client_ephemeral_public_key = 2; // X25519原始公钥，严格32字节
+  bytes client_nonce = 3;                // 安全随机数，严格32字节
+  bytes client_random_id = 4;            // 本次握手标识，严格16字节
+  AppCipherSuite cipher_suite = 5;        // v1只允许套件1
+}
+
+message AppServerHello {
+  uint32 version = 1;
+  bytes server_ephemeral_public_key = 2; // X25519原始公钥，严格32字节
+  bytes server_nonce = 3;                // 安全随机数，严格32字节
+  bytes session_id = 4;                  // 应用层会话标识，严格16字节
+  uint32 key_id = 5;                     // Ed25519长期身份公钥版本
+  bytes signature = 6;                   // 对规范化握手上下文的Ed25519签名，64字节
+  AppCipherSuite cipher_suite = 7;
+}
+
+message AppFinished {
+  bytes verify_data = 1; // HMAC-SHA256握手确认值，严格32字节
+}
+
+message AppEncryptedFrame {
+  uint32 version = 1;
+  bytes session_id = 2; // 严格16字节
+  uint64 sequence = 3;  // 每方向从1开始严格递增，0非法
+  bytes ciphertext = 4; // 明文为 protocol_type(4B小端) || protobuf payload
+  bytes tag = 5;        // AES-256-GCM认证标签，严格16字节
+}

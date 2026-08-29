@@ -4,6 +4,7 @@ import com.jitong.im.data.Prefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.CertificatePinner
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
@@ -28,6 +29,11 @@ class HttpMediaClient(
     private val port: Int = Protocol.HTTPS_FILE_PORT,
 ) {
     private val client = OkHttpClient.Builder()
+        .certificatePinner(
+            CertificatePinner.Builder()
+                .add(host, TlsPinning.CURRENT_PIN)
+                .build(),
+        )
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(2, TimeUnit.MINUTES)
         .writeTimeout(2, TimeUnit.MINUTES)

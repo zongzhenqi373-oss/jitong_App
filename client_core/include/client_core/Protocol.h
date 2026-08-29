@@ -62,6 +62,24 @@ constexpr protType DEF_PROT_DELETE_FRIEND_RQ    = DEF_BASE + 32; // 删除好友
 constexpr protType DEF_PROT_DELETE_FRIEND_RS    = DEF_BASE + 33; // 删除好友响应
 constexpr protType DEF_PROT_FRIEND_REQUEST_LIST_RQ = DEF_BASE + 34;
 constexpr protType DEF_PROT_FRIEND_REQUEST_LIST_RS = DEF_BASE + 35;
+constexpr protType DEF_PROT_APP_CLIENT_HELLO       = DEF_BASE + 36;
+constexpr protType DEF_PROT_APP_SERVER_HELLO       = DEF_BASE + 37;
+constexpr protType DEF_PROT_APP_CLIENT_FINISHED    = DEF_BASE + 38;
+constexpr protType DEF_PROT_APP_SERVER_FINISHED    = DEF_BASE + 39;
+constexpr protType DEF_PROT_APP_ENCRYPTED_FRAME    = DEF_BASE + 40;
+
+// 应用层安全通道v1固定参数。后续接入时只接受该版本和套件，禁止协商降级。
+constexpr std::uint32_t APP_SECURITY_VERSION = 1;
+constexpr std::uint32_t APP_CIPHER_SUITE_V1 = 1;
+constexpr std::size_t APP_X25519_KEY_LEN = 32;
+constexpr std::size_t APP_NONCE_LEN = 32;
+constexpr std::size_t APP_RANDOM_ID_LEN = 16;
+constexpr std::size_t APP_SESSION_ID_LEN = 16;
+constexpr std::size_t APP_ED25519_SIGNATURE_LEN = 64;
+constexpr std::size_t APP_FINISHED_LEN = 32;
+constexpr std::size_t APP_GCM_TAG_LEN = 16;
+constexpr std::size_t APP_GCM_NONCE_LEN = 12;
+constexpr std::size_t APP_MAX_HANDSHAKE_PAYLOAD = 1024;
 
 // ---------------- 字段软上限（字节，UTF-8） ----------------
 // 与原定长 struct 语义一致；pb 字符串不再定长，由应用层截断保护
