@@ -15,6 +15,7 @@
 im_server/config/ai.env
 im_server/config/dev_server.key
 im_server/config/dev_server.crt
+im_server/config/*.pem
 *.docx
 *.pdf
 *.html

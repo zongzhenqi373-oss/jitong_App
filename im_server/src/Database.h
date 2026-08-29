@@ -82,6 +82,10 @@ public:
 
     // 校验登录：outUserId 输出用户 id；返回 proto::LOGIN_SUCCESS / LOGIN_NOTEXIT / LOGIN_PASSERROR
     int loginUser(const std::string& tel, const std::string& passHash, int& outUserId);
+    bool bindDevicePublicKey(int userId, const std::string& deviceId,
+                             const std::vector<std::uint8_t>& publicKeyDer);
+    bool getDevicePublicKey(int userId, const std::string& deviceId,
+                            std::vector<std::uint8_t>& outPublicKeyDer);
 
     // ---------------- 资料/好友 ----------------
     bool getUser(int id, UserRecord& out);

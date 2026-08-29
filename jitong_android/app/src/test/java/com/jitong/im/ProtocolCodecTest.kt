@@ -128,6 +128,7 @@ class ProtocolCodecTest {
     fun `应用层安全通道协议号和字段长度定义一致`() {
         assertEquals(Protocol.DEF_BASE + 36, Protocol.APP_CLIENT_HELLO)
         assertEquals(Protocol.DEF_BASE + 40, Protocol.APP_ENCRYPTED_FRAME)
+        assertEquals(4, Protocol.LOGIN_RATE_LIMITED)
         val hello = Im.AppClientHello.newBuilder()
             .setVersion(Protocol.APP_SECURITY_VERSION)
             .setClientEphemeralPublicKey(com.google.protobuf.ByteString.copyFrom(ByteArray(32) { 1 }))

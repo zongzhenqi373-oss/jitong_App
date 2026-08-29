@@ -266,11 +266,11 @@ constexpr TokenLoginRq::ParseTableT_ TokenLoginRq::InternalGenerateParseTable_(c
     {
       PROTOBUF_FIELD_OFFSET(TokenLoginRq, _impl_._has_bits_),
       0, // no _extensions_
-      4, 24,  // max_field_number, fast_idx_mask
+      5, 56,  // max_field_number, fast_idx_mask
       offsetof(ParseTableT_, field_lookup_table),
-      4294967282,  // skipmap
+      4294967266,  // skipmap
       offsetof(ParseTableT_, field_entries),
-      3,  // num_field_entries
+      4,  // num_field_entries
       0,  // num_aux_entries
       offsetof(ParseTableT_, field_names),  // no aux_entries
       class_data,
@@ -280,10 +280,7 @@ constexpr TokenLoginRq::ParseTableT_ TokenLoginRq::InternalGenerateParseTable_(c
       ::_pbi::TcParser::GetTable<::im::proto::TokenLoginRq>(),  // to_prefetch
       #endif  // PROTOBUF_PREFETCH_PARSE_TABLE
     }, {{
-      // string request_id = 4;
-      {::_pbi::TcParser::FastUS1,
-       {34, 2, 0,
-        PROTOBUF_FIELD_OFFSET(TokenLoginRq, _impl_.request_id_)}},
+      {::_pbi::TcParser::MiniParse, {}},
       // string access_token = 1;
       {::_pbi::TcParser::FastUS1,
        {10, 0, 0,
@@ -293,6 +290,16 @@ constexpr TokenLoginRq::ParseTableT_ TokenLoginRq::InternalGenerateParseTable_(c
       {::_pbi::TcParser::FastUS1,
        {26, 1, 0,
         PROTOBUF_FIELD_OFFSET(TokenLoginRq, _impl_.device_id_)}},
+      // string request_id = 4;
+      {::_pbi::TcParser::FastUS1,
+       {34, 2, 0,
+        PROTOBUF_FIELD_OFFSET(TokenLoginRq, _impl_.request_id_)}},
+      // bytes device_signature = 5;
+      {::_pbi::TcParser::FastBS1,
+       {42, 3, 0,
+        PROTOBUF_FIELD_OFFSET(TokenLoginRq, _impl_.device_signature_)}},
+      {::_pbi::TcParser::MiniParse, {}},
+      {::_pbi::TcParser::MiniParse, {}},
     }}, {{
       65535, 65535
     }}, {{
@@ -302,6 +309,8 @@ constexpr TokenLoginRq::ParseTableT_ TokenLoginRq::InternalGenerateParseTable_(c
       {PROTOBUF_FIELD_OFFSET(TokenLoginRq, _impl_.device_id_), _Internal::kHasBitsOffset + 1, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
       // string request_id = 4;
       {PROTOBUF_FIELD_OFFSET(TokenLoginRq, _impl_.request_id_), _Internal::kHasBitsOffset + 2, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
+      // bytes device_signature = 5;
+      {PROTOBUF_FIELD_OFFSET(TokenLoginRq, _impl_.device_signature_), _Internal::kHasBitsOffset + 3, 0, (0 | ::_fl::kFcOptional | ::_fl::kBytes | ::_fl::kRepAString)},
     }},
     // no aux_entries
     {{
@@ -326,6 +335,9 @@ inline constexpr TokenLoginRq::Impl_::Impl_(
             &::google::protobuf::internal::fixed_address_empty_string,
             ::_pbi::ConstantInitialized()),
         request_id_(
+            &::google::protobuf::internal::fixed_address_empty_string,
+            ::_pbi::ConstantInitialized()),
+        device_signature_(
             &::google::protobuf::internal::fixed_address_empty_string,
             ::_pbi::ConstantInitialized()) {}
 
@@ -1233,11 +1245,11 @@ constexpr RefreshTokenRq::ParseTableT_ RefreshTokenRq::InternalGenerateParseTabl
     {
       PROTOBUF_FIELD_OFFSET(RefreshTokenRq, _impl_._has_bits_),
       0, // no _extensions_
-      3, 24,  // max_field_number, fast_idx_mask
+      4, 24,  // max_field_number, fast_idx_mask
       offsetof(ParseTableT_, field_lookup_table),
-      4294967288,  // skipmap
+      4294967280,  // skipmap
       offsetof(ParseTableT_, field_entries),
-      3,  // num_field_entries
+      4,  // num_field_entries
       0,  // num_aux_entries
       offsetof(ParseTableT_, field_names),  // no aux_entries
       class_data,
@@ -1247,7 +1259,10 @@ constexpr RefreshTokenRq::ParseTableT_ RefreshTokenRq::InternalGenerateParseTabl
       ::_pbi::TcParser::GetTable<::im::proto::RefreshTokenRq>(),  // to_prefetch
       #endif  // PROTOBUF_PREFETCH_PARSE_TABLE
     }, {{
-      {::_pbi::TcParser::MiniParse, {}},
+      // bytes device_signature = 4;
+      {::_pbi::TcParser::FastBS1,
+       {34, 3, 0,
+        PROTOBUF_FIELD_OFFSET(RefreshTokenRq, _impl_.device_signature_)}},
       // string refresh_token = 1;
       {::_pbi::TcParser::FastUS1,
        {10, 0, 0,
@@ -1269,6 +1284,8 @@ constexpr RefreshTokenRq::ParseTableT_ RefreshTokenRq::InternalGenerateParseTabl
       {PROTOBUF_FIELD_OFFSET(RefreshTokenRq, _impl_.device_id_), _Internal::kHasBitsOffset + 1, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
       // string request_id = 3;
       {PROTOBUF_FIELD_OFFSET(RefreshTokenRq, _impl_.request_id_), _Internal::kHasBitsOffset + 2, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
+      // bytes device_signature = 4;
+      {PROTOBUF_FIELD_OFFSET(RefreshTokenRq, _impl_.device_signature_), _Internal::kHasBitsOffset + 3, 0, (0 | ::_fl::kFcOptional | ::_fl::kBytes | ::_fl::kRepAString)},
     }},
     // no aux_entries
     {{
@@ -1293,6 +1310,9 @@ inline constexpr RefreshTokenRq::Impl_::Impl_(
             &::google::protobuf::internal::fixed_address_empty_string,
             ::_pbi::ConstantInitialized()),
         request_id_(
+            &::google::protobuf::internal::fixed_address_empty_string,
+            ::_pbi::ConstantInitialized()),
+        device_signature_(
             &::google::protobuf::internal::fixed_address_empty_string,
             ::_pbi::ConstantInitialized()) {}
 
@@ -1541,11 +1561,11 @@ constexpr LogoutRq::ParseTableT_ LogoutRq::InternalGenerateParseTable_(const ::_
     {
       PROTOBUF_FIELD_OFFSET(LogoutRq, _impl_._has_bits_),
       0, // no _extensions_
-      3, 24,  // max_field_number, fast_idx_mask
+      4, 24,  // max_field_number, fast_idx_mask
       offsetof(ParseTableT_, field_lookup_table),
-      4294967288,  // skipmap
+      4294967280,  // skipmap
       offsetof(ParseTableT_, field_entries),
-      3,  // num_field_entries
+      4,  // num_field_entries
       0,  // num_aux_entries
       offsetof(ParseTableT_, field_names),  // no aux_entries
       class_data,
@@ -1555,7 +1575,10 @@ constexpr LogoutRq::ParseTableT_ LogoutRq::InternalGenerateParseTable_(const ::_
       ::_pbi::TcParser::GetTable<::im::proto::LogoutRq>(),  // to_prefetch
       #endif  // PROTOBUF_PREFETCH_PARSE_TABLE
     }, {{
-      {::_pbi::TcParser::MiniParse, {}},
+      // bytes device_signature = 4;
+      {::_pbi::TcParser::FastBS1,
+       {34, 2, 0,
+        PROTOBUF_FIELD_OFFSET(LogoutRq, _impl_.device_signature_)}},
       // string refresh_token = 1;
       {::_pbi::TcParser::FastUS1,
        {10, 0, 0,
@@ -1565,8 +1588,8 @@ constexpr LogoutRq::ParseTableT_ LogoutRq::InternalGenerateParseTable_(const ::_
        {18, 1, 0,
         PROTOBUF_FIELD_OFFSET(LogoutRq, _impl_.device_id_)}},
       // bool logout_all_devices = 3;
-      {::_pbi::TcParser::SingularVarintNoZag1<bool, offsetof(LogoutRq, _impl_.logout_all_devices_), 2>(),
-       {24, 2, 0,
+      {::_pbi::TcParser::SingularVarintNoZag1<bool, offsetof(LogoutRq, _impl_.logout_all_devices_), 3>(),
+       {24, 3, 0,
         PROTOBUF_FIELD_OFFSET(LogoutRq, _impl_.logout_all_devices_)}},
     }}, {{
       65535, 65535
@@ -1576,7 +1599,9 @@ constexpr LogoutRq::ParseTableT_ LogoutRq::InternalGenerateParseTable_(const ::_
       // string device_id = 2;
       {PROTOBUF_FIELD_OFFSET(LogoutRq, _impl_.device_id_), _Internal::kHasBitsOffset + 1, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
       // bool logout_all_devices = 3;
-      {PROTOBUF_FIELD_OFFSET(LogoutRq, _impl_.logout_all_devices_), _Internal::kHasBitsOffset + 2, 0, (0 | ::_fl::kFcOptional | ::_fl::kBool)},
+      {PROTOBUF_FIELD_OFFSET(LogoutRq, _impl_.logout_all_devices_), _Internal::kHasBitsOffset + 3, 0, (0 | ::_fl::kFcOptional | ::_fl::kBool)},
+      // bytes device_signature = 4;
+      {PROTOBUF_FIELD_OFFSET(LogoutRq, _impl_.device_signature_), _Internal::kHasBitsOffset + 2, 0, (0 | ::_fl::kFcOptional | ::_fl::kBytes | ::_fl::kRepAString)},
     }},
     // no aux_entries
     {{
@@ -1597,6 +1622,9 @@ inline constexpr LogoutRq::Impl_::Impl_(
             &::google::protobuf::internal::fixed_address_empty_string,
             ::_pbi::ConstantInitialized()),
         device_id_(
+            &::google::protobuf::internal::fixed_address_empty_string,
+            ::_pbi::ConstantInitialized()),
+        device_signature_(
             &::google::protobuf::internal::fixed_address_empty_string,
             ::_pbi::ConstantInitialized()),
         logout_all_devices_{false} {}
@@ -1900,11 +1928,11 @@ constexpr LoginRq::ParseTableT_ LoginRq::InternalGenerateParseTable_(const ::_pb
     {
       PROTOBUF_FIELD_OFFSET(LoginRq, _impl_._has_bits_),
       0, // no _extensions_
-      5, 56,  // max_field_number, fast_idx_mask
+      7, 56,  // max_field_number, fast_idx_mask
       offsetof(ParseTableT_, field_lookup_table),
-      4294967264,  // skipmap
+      4294967168,  // skipmap
       offsetof(ParseTableT_, field_entries),
-      5,  // num_field_entries
+      7,  // num_field_entries
       0,  // num_aux_entries
       offsetof(ParseTableT_, field_names),  // no aux_entries
       class_data,
@@ -1935,8 +1963,14 @@ constexpr LoginRq::ParseTableT_ LoginRq::InternalGenerateParseTable_(const ::_pb
       {::_pbi::TcParser::FastUS1,
        {42, 4, 0,
         PROTOBUF_FIELD_OFFSET(LoginRq, _impl_.client_version_)}},
-      {::_pbi::TcParser::MiniParse, {}},
-      {::_pbi::TcParser::MiniParse, {}},
+      // bytes device_public_key = 6;
+      {::_pbi::TcParser::FastBS1,
+       {50, 5, 0,
+        PROTOBUF_FIELD_OFFSET(LoginRq, _impl_.device_public_key_)}},
+      // bytes device_signature = 7;
+      {::_pbi::TcParser::FastBS1,
+       {58, 6, 0,
+        PROTOBUF_FIELD_OFFSET(LoginRq, _impl_.device_signature_)}},
     }}, {{
       65535, 65535
     }}, {{
@@ -1950,6 +1984,10 @@ constexpr LoginRq::ParseTableT_ LoginRq::InternalGenerateParseTable_(const ::_pb
       {PROTOBUF_FIELD_OFFSET(LoginRq, _impl_.device_name_), _Internal::kHasBitsOffset + 3, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
       // string client_version = 5;
       {PROTOBUF_FIELD_OFFSET(LoginRq, _impl_.client_version_), _Internal::kHasBitsOffset + 4, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
+      // bytes device_public_key = 6;
+      {PROTOBUF_FIELD_OFFSET(LoginRq, _impl_.device_public_key_), _Internal::kHasBitsOffset + 5, 0, (0 | ::_fl::kFcOptional | ::_fl::kBytes | ::_fl::kRepAString)},
+      // bytes device_signature = 7;
+      {PROTOBUF_FIELD_OFFSET(LoginRq, _impl_.device_signature_), _Internal::kHasBitsOffset + 6, 0, (0 | ::_fl::kFcOptional | ::_fl::kBytes | ::_fl::kRepAString)},
     }},
     // no aux_entries
     {{
@@ -1982,6 +2020,12 @@ inline constexpr LoginRq::Impl_::Impl_(
             &::google::protobuf::internal::fixed_address_empty_string,
             ::_pbi::ConstantInitialized()),
         client_version_(
+            &::google::protobuf::internal::fixed_address_empty_string,
+            ::_pbi::ConstantInitialized()),
+        device_public_key_(
+            &::google::protobuf::internal::fixed_address_empty_string,
+            ::_pbi::ConstantInitialized()),
+        device_signature_(
             &::google::protobuf::internal::fixed_address_empty_string,
             ::_pbi::ConstantInitialized()) {}
 
@@ -5488,17 +5532,21 @@ const ::uint32_t
         0,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::im::proto::LoginRq, _impl_._has_bits_),
-        8, // hasbit index offset
+        10, // hasbit index offset
         PROTOBUF_FIELD_OFFSET(::im::proto::LoginRq, _impl_.tel_),
         PROTOBUF_FIELD_OFFSET(::im::proto::LoginRq, _impl_.pass_),
         PROTOBUF_FIELD_OFFSET(::im::proto::LoginRq, _impl_.device_id_),
         PROTOBUF_FIELD_OFFSET(::im::proto::LoginRq, _impl_.device_name_),
         PROTOBUF_FIELD_OFFSET(::im::proto::LoginRq, _impl_.client_version_),
+        PROTOBUF_FIELD_OFFSET(::im::proto::LoginRq, _impl_.device_public_key_),
+        PROTOBUF_FIELD_OFFSET(::im::proto::LoginRq, _impl_.device_signature_),
         0,
         1,
         2,
         3,
         4,
+        5,
+        6,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::im::proto::LoginRs, _impl_._has_bits_),
         10, // hasbit index offset
@@ -5518,13 +5566,15 @@ const ::uint32_t
         2,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::im::proto::RefreshTokenRq, _impl_._has_bits_),
-        6, // hasbit index offset
+        7, // hasbit index offset
         PROTOBUF_FIELD_OFFSET(::im::proto::RefreshTokenRq, _impl_.refresh_token_),
         PROTOBUF_FIELD_OFFSET(::im::proto::RefreshTokenRq, _impl_.device_id_),
         PROTOBUF_FIELD_OFFSET(::im::proto::RefreshTokenRq, _impl_.request_id_),
+        PROTOBUF_FIELD_OFFSET(::im::proto::RefreshTokenRq, _impl_.device_signature_),
         0,
         1,
         2,
+        3,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::im::proto::RefreshTokenRs, _impl_._has_bits_),
         9, // hasbit index offset
@@ -5542,13 +5592,15 @@ const ::uint32_t
         2,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::im::proto::TokenLoginRq, _impl_._has_bits_),
-        6, // hasbit index offset
+        7, // hasbit index offset
         PROTOBUF_FIELD_OFFSET(::im::proto::TokenLoginRq, _impl_.access_token_),
         PROTOBUF_FIELD_OFFSET(::im::proto::TokenLoginRq, _impl_.device_id_),
         PROTOBUF_FIELD_OFFSET(::im::proto::TokenLoginRq, _impl_.request_id_),
+        PROTOBUF_FIELD_OFFSET(::im::proto::TokenLoginRq, _impl_.device_signature_),
         0,
         1,
         2,
+        3,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::im::proto::TokenLoginRs, _impl_._has_bits_),
         6, // hasbit index offset
@@ -5560,12 +5612,14 @@ const ::uint32_t
         2,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::im::proto::LogoutRq, _impl_._has_bits_),
-        6, // hasbit index offset
+        7, // hasbit index offset
         PROTOBUF_FIELD_OFFSET(::im::proto::LogoutRq, _impl_.refresh_token_),
         PROTOBUF_FIELD_OFFSET(::im::proto::LogoutRq, _impl_.device_id_),
         PROTOBUF_FIELD_OFFSET(::im::proto::LogoutRq, _impl_.logout_all_devices_),
+        PROTOBUF_FIELD_OFFSET(::im::proto::LogoutRq, _impl_.device_signature_),
         0,
         1,
+        3,
         2,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::im::proto::LogoutRs, _impl_._has_bits_),
@@ -5811,35 +5865,35 @@ static const ::_pbi::MigrationSchema
         {0, sizeof(::im::proto::RegisterRq)},
         {9, sizeof(::im::proto::RegisterRs)},
         {14, sizeof(::im::proto::LoginRq)},
-        {27, sizeof(::im::proto::LoginRs)},
-        {44, sizeof(::im::proto::RefreshTokenRq)},
-        {53, sizeof(::im::proto::RefreshTokenRs)},
-        {68, sizeof(::im::proto::TokenLoginRq)},
-        {77, sizeof(::im::proto::TokenLoginRs)},
-        {86, sizeof(::im::proto::LogoutRq)},
-        {95, sizeof(::im::proto::LogoutRs)},
-        {100, sizeof(::im::proto::FriendInfo)},
-        {113, sizeof(::im::proto::ChatInfoRq)},
-        {144, sizeof(::im::proto::ChatInfoRs)},
-        {157, sizeof(::im::proto::AddFriendRq)},
-        {166, sizeof(::im::proto::AddFriendRs)},
-        {179, sizeof(::im::proto::FriendRequestListRq)},
-        {180, sizeof(::im::proto::FriendRequestItem)},
-        {193, sizeof(::im::proto::FriendRequestListRs)},
-        {198, sizeof(::im::proto::DeleteFriendRq)},
-        {203, sizeof(::im::proto::DeleteFriendRs)},
-        {214, sizeof(::im::proto::FriendOffline)},
-        {219, sizeof(::im::proto::RoamConvRq)},
-        {224, sizeof(::im::proto::RoamConvRs)},
-        {229, sizeof(::im::proto::RoamMsgRq)},
-        {240, sizeof(::im::proto::RoamMsgRs)},
-        {251, sizeof(::im::proto::AiReplyRq)},
-        {262, sizeof(::im::proto::AiReplyRs)},
-        {279, sizeof(::im::proto::AiCancelRq)},
-        {284, sizeof(::im::proto::AppClientHello)},
-        {297, sizeof(::im::proto::AppServerHello)},
-        {314, sizeof(::im::proto::AppFinished)},
-        {319, sizeof(::im::proto::AppEncryptedFrame)},
+        {31, sizeof(::im::proto::LoginRs)},
+        {48, sizeof(::im::proto::RefreshTokenRq)},
+        {59, sizeof(::im::proto::RefreshTokenRs)},
+        {74, sizeof(::im::proto::TokenLoginRq)},
+        {85, sizeof(::im::proto::TokenLoginRs)},
+        {94, sizeof(::im::proto::LogoutRq)},
+        {105, sizeof(::im::proto::LogoutRs)},
+        {110, sizeof(::im::proto::FriendInfo)},
+        {123, sizeof(::im::proto::ChatInfoRq)},
+        {154, sizeof(::im::proto::ChatInfoRs)},
+        {167, sizeof(::im::proto::AddFriendRq)},
+        {176, sizeof(::im::proto::AddFriendRs)},
+        {189, sizeof(::im::proto::FriendRequestListRq)},
+        {190, sizeof(::im::proto::FriendRequestItem)},
+        {203, sizeof(::im::proto::FriendRequestListRs)},
+        {208, sizeof(::im::proto::DeleteFriendRq)},
+        {213, sizeof(::im::proto::DeleteFriendRs)},
+        {224, sizeof(::im::proto::FriendOffline)},
+        {229, sizeof(::im::proto::RoamConvRq)},
+        {234, sizeof(::im::proto::RoamConvRs)},
+        {239, sizeof(::im::proto::RoamMsgRq)},
+        {250, sizeof(::im::proto::RoamMsgRs)},
+        {261, sizeof(::im::proto::AiReplyRq)},
+        {272, sizeof(::im::proto::AiReplyRs)},
+        {289, sizeof(::im::proto::AiCancelRq)},
+        {294, sizeof(::im::proto::AppClientHello)},
+        {307, sizeof(::im::proto::AppServerHello)},
+        {324, sizeof(::im::proto::AppFinished)},
+        {329, sizeof(::im::proto::AppEncryptedFrame)},
 };
 static const ::_pbi::MessageGlobalsBase* PROTOBUF_NONNULL const
     file_message_globals[] = {
@@ -5880,94 +5934,97 @@ const char descriptor_table_protodef_im_2eproto[] ABSL_ATTRIBUTE_SECTION_VARIABL
     protodesc_cold) = {
     "\n\010im.proto\022\010im.proto\"5\n\nRegisterRq\022\014\n\004ni"
     "ck\030\001 \001(\t\022\013\n\003tel\030\002 \001(\t\022\014\n\004pass\030\003 \001(\t\"\034\n\nR"
-    "egisterRs\022\016\n\006result\030\001 \001(\005\"d\n\007LoginRq\022\013\n\003"
-    "tel\030\001 \001(\t\022\014\n\004pass\030\002 \001(\t\022\021\n\tdevice_id\030\003 \001"
-    "(\t\022\023\n\013device_name\030\004 \001(\t\022\026\n\016client_versio"
-    "n\030\005 \001(\t\"\253\001\n\007LoginRs\022\016\n\006userid\030\001 \001(\005\022\016\n\006r"
-    "esult\030\002 \001(\005\022\024\n\014access_token\030\003 \001(\t\022\025\n\rref"
-    "resh_token\030\004 \001(\t\022\036\n\026access_token_expire_"
-    "at\030\005 \001(\003\022\037\n\027refresh_token_expire_at\030\006 \001("
-    "\003\022\022\n\nsession_id\030\007 \001(\t\"N\n\016RefreshTokenRq\022"
-    "\025\n\rrefresh_token\030\001 \001(\t\022\021\n\tdevice_id\030\002 \001("
-    "\t\022\022\n\nrequest_id\030\003 \001(\t\"\242\001\n\016RefreshTokenRs"
+    "egisterRs\022\016\n\006result\030\001 \001(\005\"\231\001\n\007LoginRq\022\013\n"
+    "\003tel\030\001 \001(\t\022\014\n\004pass\030\002 \001(\t\022\021\n\tdevice_id\030\003 "
+    "\001(\t\022\023\n\013device_name\030\004 \001(\t\022\026\n\016client_versi"
+    "on\030\005 \001(\t\022\031\n\021device_public_key\030\006 \001(\014\022\030\n\020d"
+    "evice_signature\030\007 \001(\014\"\253\001\n\007LoginRs\022\016\n\006use"
+    "rid\030\001 \001(\005\022\016\n\006result\030\002 \001(\005\022\024\n\014access_toke"
+    "n\030\003 \001(\t\022\025\n\rrefresh_token\030\004 \001(\t\022\036\n\026access"
+    "_token_expire_at\030\005 \001(\003\022\037\n\027refresh_token_"
+    "expire_at\030\006 \001(\003\022\022\n\nsession_id\030\007 \001(\t\"h\n\016R"
+    "efreshTokenRq\022\025\n\rrefresh_token\030\001 \001(\t\022\021\n\t"
+    "device_id\030\002 \001(\t\022\022\n\nrequest_id\030\003 \001(\t\022\030\n\020d"
+    "evice_signature\030\004 \001(\014\"\242\001\n\016RefreshTokenRs"
     "\022\016\n\006result\030\001 \001(\005\022\024\n\014access_token\030\002 \001(\t\022\025"
     "\n\rrefresh_token\030\003 \001(\t\022\036\n\026access_token_ex"
     "pire_at\030\004 \001(\003\022\037\n\027refresh_token_expire_at"
-    "\030\005 \001(\003\022\022\n\nsession_id\030\006 \001(\t\"K\n\014TokenLogin"
+    "\030\005 \001(\003\022\022\n\nsession_id\030\006 \001(\t\"e\n\014TokenLogin"
     "Rq\022\024\n\014access_token\030\001 \001(\t\022\021\n\tdevice_id\030\003 "
-    "\001(\t\022\022\n\nrequest_id\030\004 \001(\t\"N\n\014TokenLoginRs\022"
-    "\016\n\006result\030\001 \001(\005\022\016\n\006userid\030\002 \001(\005\022\036\n\026acces"
-    "s_token_expire_at\030\003 \001(\003\"P\n\010LogoutRq\022\025\n\rr"
-    "efresh_token\030\001 \001(\t\022\021\n\tdevice_id\030\002 \001(\t\022\032\n"
-    "\022logout_all_devices\030\003 \001(\010\"\032\n\010LogoutRs\022\016\n"
-    "\006result\030\001 \001(\005\"[\n\nFriendInfo\022\016\n\006userid\030\001 "
-    "\001(\005\022\016\n\006iconid\030\002 \001(\005\022\016\n\006status\030\003 \001(\005\022\014\n\004n"
-    "ick\030\004 \001(\t\022\017\n\007feeling\030\005 \001(\t\"\232\002\n\nChatInfoR"
-    "q\022\014\n\004myid\030\001 \001(\005\022\r\n\005friid\030\002 \001(\005\022\013\n\003msg\030\003 "
-    "\001(\t\022\037\n\004type\030\004 \001(\0162\021.im.proto.MsgType\022\023\n\013"
-    "image_width\030\006 \001(\005\022\024\n\014image_height\030\007 \001(\005\022"
-    "\016\n\006msg_id\030\010 \001(\t\022\n\n\002ts\030\t \001(\003\022\013\n\003seq\030\n \001(\003"
-    "\022\021\n\tfile_name\030\013 \001(\t\022\021\n\tfile_size\030\014 \001(\003\022\017"
-    "\n\007file_id\030\r \001(\t\022\024\n\014content_type\030\016 \001(\t\022\016\n"
-    "\006sha256\030\017 \001(\tJ\004\010\005\020\006R\nimage_data\"V\n\nChatI"
-    "nfoRs\022\014\n\004myid\030\001 \001(\005\022\r\n\005friid\030\002 \001(\005\022\016\n\006re"
-    "sult\030\003 \001(\005\022\016\n\006msg_id\030\004 \001(\t\022\013\n\003seq\030\005 \001(\003\""
-    "<\n\013AddFriendRq\022\014\n\004myid\030\001 \001(\005\022\016\n\006mynick\030\002"
-    " \001(\t\022\017\n\007frinick\030\003 \001(\t\"]\n\013AddFriendRs\022\016\n\006"
-    "result\030\001 \001(\005\022\016\n\006destid\030\002 \001(\005\022\020\n\010destnick"
-    "\030\003 \001(\t\022\014\n\004myid\030\004 \001(\005\022\016\n\006mynick\030\005 \001(\t\"\025\n\023"
-    "FriendRequestListRq\"}\n\021FriendRequestItem"
-    "\022\024\n\014requester_id\030\001 \001(\005\022\021\n\ttarget_id\030\002 \001("
-    "\005\022\026\n\016requester_nick\030\003 \001(\t\022\023\n\013target_nick"
-    "\030\004 \001(\t\022\022\n\ncreated_at\030\005 \001(\003\"D\n\023FriendRequ"
-    "estListRs\022-\n\010requests\030\001 \003(\0132\033.im.proto.F"
-    "riendRequestItem\"#\n\016DeleteFriendRq\022\021\n\tfr"
-    "iend_id\030\001 \001(\005\"_\n\016DeleteFriendRs\022\016\n\006resul"
-    "t\030\001 \001(\005\022\021\n\tfriend_id\030\002 \001(\005\022\023\n\013operator_i"
-    "d\030\003 \001(\005\022\025\n\roperator_nick\030\004 \001(\t\"\"\n\rFriend"
-    "Offline\022\021\n\tofflineid\030\001 \001(\005\"\032\n\nRoamConvRq"
-    "\022\014\n\004myid\030\001 \001(\005\"1\n\nRoamConvRs\022#\n\005convs\030\001 "
-    "\003(\0132\024.im.proto.ChatInfoRq\"M\n\tRoamMsgRq\022\014"
-    "\n\004myid\030\001 \001(\005\022\017\n\007peer_id\030\002 \001(\005\022\022\n\nbefore_"
-    "seq\030\003 \001(\003\022\r\n\005limit\030\004 \001(\005\"c\n\tRoamMsgRs\022\017\n"
-    "\007peer_id\030\001 \001(\005\022\"\n\004msgs\030\002 \003(\0132\024.im.proto."
-    "ChatInfoRq\022\020\n\010has_more\030\003 \001(\010\022\017\n\007min_seq\030"
-    "\004 \001(\003\"W\n\tAiReplyRq\022\022\n\nrequest_id\030\001 \001(\t\022\017"
-    "\n\007peer_id\030\002 \001(\005\022\014\n\004tone\030\003 \001(\t\022\027\n\017max_sug"
-    "gestions\030\004 \001(\005\"\250\001\n\tAiReplyRs\022\022\n\nrequest_"
-    "id\030\001 \001(\t\022\'\n\006status\030\002 \001(\0162\027.im.proto.AiRe"
-    "plyStatus\022\023\n\013suggestions\030\003 \003(\t\022\025\n\rerror_"
-    "message\030\004 \001(\t\022\017\n\007partial\030\005 \001(\010\022\023\n\013chunk_"
-    "index\030\006 \001(\005\022\014\n\004done\030\007 \001(\010\" \n\nAiCancelRq\022"
-    "\022\n\nrequest_id\030\001 \001(\t\"\246\001\n\016AppClientHello\022\017"
-    "\n\007version\030\001 \001(\r\022#\n\033client_ephemeral_publ"
-    "ic_key\030\002 \001(\014\022\024\n\014client_nonce\030\003 \001(\014\022\030\n\020cl"
-    "ient_random_id\030\004 \001(\014\022.\n\014cipher_suite\030\005 \001"
-    "(\0162\030.im.proto.AppCipherSuite\"\303\001\n\016AppServ"
-    "erHello\022\017\n\007version\030\001 \001(\r\022#\n\033server_ephem"
-    "eral_public_key\030\002 \001(\014\022\024\n\014server_nonce\030\003 "
-    "\001(\014\022\022\n\nsession_id\030\004 \001(\014\022\016\n\006key_id\030\005 \001(\r\022"
-    "\021\n\tsignature\030\006 \001(\014\022.\n\014cipher_suite\030\007 \001(\016"
-    "2\030.im.proto.AppCipherSuite\"\"\n\013AppFinishe"
-    "d\022\023\n\013verify_data\030\001 \001(\014\"k\n\021AppEncryptedFr"
-    "ame\022\017\n\007version\030\001 \001(\r\022\022\n\nsession_id\030\002 \001(\014"
-    "\022\020\n\010sequence\030\003 \001(\004\022\022\n\nciphertext\030\004 \001(\014\022\013"
-    "\n\003tag\030\005 \001(\014*(\n\007MsgType\022\010\n\004TEXT\020\000\022\t\n\005IMAG"
-    "E\020\001\022\010\n\004FILE\020\002*\332\001\n\rAiReplyStatus\022\017\n\013AI_RE"
-    "PLY_OK\020\000\022\034\n\030AI_REPLY_INVALID_REQUEST\020\001\022\031"
-    "\n\025AI_REPLY_UNAUTHORIZED\020\002\022\027\n\023AI_REPLY_NO"
-    "T_FRIEND\020\003\022\031\n\025AI_REPLY_RATE_LIMITED\020\004\022\021\n"
-    "\rAI_REPLY_BUSY\020\005\022\033\n\027AI_REPLY_NOT_CONFIGU"
-    "RED\020\006\022\033\n\027AI_REPLY_UPSTREAM_ERROR\020\007*c\n\016Ap"
-    "pCipherSuite\022\032\n\026APP_CIPHER_UNSPECIFIED\020\000"
-    "\0225\n1APP_CIPHER_X25519_ED25519_HKDF_SHA25"
-    "6_AES_256_GCM\020\001b\006proto3"
+    "\001(\t\022\022\n\nrequest_id\030\004 \001(\t\022\030\n\020device_signat"
+    "ure\030\005 \001(\014\"N\n\014TokenLoginRs\022\016\n\006result\030\001 \001("
+    "\005\022\016\n\006userid\030\002 \001(\005\022\036\n\026access_token_expire"
+    "_at\030\003 \001(\003\"j\n\010LogoutRq\022\025\n\rrefresh_token\030\001"
+    " \001(\t\022\021\n\tdevice_id\030\002 \001(\t\022\032\n\022logout_all_de"
+    "vices\030\003 \001(\010\022\030\n\020device_signature\030\004 \001(\014\"\032\n"
+    "\010LogoutRs\022\016\n\006result\030\001 \001(\005\"[\n\nFriendInfo\022"
+    "\016\n\006userid\030\001 \001(\005\022\016\n\006iconid\030\002 \001(\005\022\016\n\006statu"
+    "s\030\003 \001(\005\022\014\n\004nick\030\004 \001(\t\022\017\n\007feeling\030\005 \001(\t\"\232"
+    "\002\n\nChatInfoRq\022\014\n\004myid\030\001 \001(\005\022\r\n\005friid\030\002 \001"
+    "(\005\022\013\n\003msg\030\003 \001(\t\022\037\n\004type\030\004 \001(\0162\021.im.proto"
+    ".MsgType\022\023\n\013image_width\030\006 \001(\005\022\024\n\014image_h"
+    "eight\030\007 \001(\005\022\016\n\006msg_id\030\010 \001(\t\022\n\n\002ts\030\t \001(\003\022"
+    "\013\n\003seq\030\n \001(\003\022\021\n\tfile_name\030\013 \001(\t\022\021\n\tfile_"
+    "size\030\014 \001(\003\022\017\n\007file_id\030\r \001(\t\022\024\n\014content_t"
+    "ype\030\016 \001(\t\022\016\n\006sha256\030\017 \001(\tJ\004\010\005\020\006R\nimage_d"
+    "ata\"V\n\nChatInfoRs\022\014\n\004myid\030\001 \001(\005\022\r\n\005friid"
+    "\030\002 \001(\005\022\016\n\006result\030\003 \001(\005\022\016\n\006msg_id\030\004 \001(\t\022\013"
+    "\n\003seq\030\005 \001(\003\"<\n\013AddFriendRq\022\014\n\004myid\030\001 \001(\005"
+    "\022\016\n\006mynick\030\002 \001(\t\022\017\n\007frinick\030\003 \001(\t\"]\n\013Add"
+    "FriendRs\022\016\n\006result\030\001 \001(\005\022\016\n\006destid\030\002 \001(\005"
+    "\022\020\n\010destnick\030\003 \001(\t\022\014\n\004myid\030\004 \001(\005\022\016\n\006myni"
+    "ck\030\005 \001(\t\"\025\n\023FriendRequestListRq\"}\n\021Frien"
+    "dRequestItem\022\024\n\014requester_id\030\001 \001(\005\022\021\n\tta"
+    "rget_id\030\002 \001(\005\022\026\n\016requester_nick\030\003 \001(\t\022\023\n"
+    "\013target_nick\030\004 \001(\t\022\022\n\ncreated_at\030\005 \001(\003\"D"
+    "\n\023FriendRequestListRs\022-\n\010requests\030\001 \003(\0132"
+    "\033.im.proto.FriendRequestItem\"#\n\016DeleteFr"
+    "iendRq\022\021\n\tfriend_id\030\001 \001(\005\"_\n\016DeleteFrien"
+    "dRs\022\016\n\006result\030\001 \001(\005\022\021\n\tfriend_id\030\002 \001(\005\022\023"
+    "\n\013operator_id\030\003 \001(\005\022\025\n\roperator_nick\030\004 \001"
+    "(\t\"\"\n\rFriendOffline\022\021\n\tofflineid\030\001 \001(\005\"\032"
+    "\n\nRoamConvRq\022\014\n\004myid\030\001 \001(\005\"1\n\nRoamConvRs"
+    "\022#\n\005convs\030\001 \003(\0132\024.im.proto.ChatInfoRq\"M\n"
+    "\tRoamMsgRq\022\014\n\004myid\030\001 \001(\005\022\017\n\007peer_id\030\002 \001("
+    "\005\022\022\n\nbefore_seq\030\003 \001(\003\022\r\n\005limit\030\004 \001(\005\"c\n\t"
+    "RoamMsgRs\022\017\n\007peer_id\030\001 \001(\005\022\"\n\004msgs\030\002 \003(\013"
+    "2\024.im.proto.ChatInfoRq\022\020\n\010has_more\030\003 \001(\010"
+    "\022\017\n\007min_seq\030\004 \001(\003\"W\n\tAiReplyRq\022\022\n\nreques"
+    "t_id\030\001 \001(\t\022\017\n\007peer_id\030\002 \001(\005\022\014\n\004tone\030\003 \001("
+    "\t\022\027\n\017max_suggestions\030\004 \001(\005\"\250\001\n\tAiReplyRs"
+    "\022\022\n\nrequest_id\030\001 \001(\t\022\'\n\006status\030\002 \001(\0162\027.i"
+    "m.proto.AiReplyStatus\022\023\n\013suggestions\030\003 \003"
+    "(\t\022\025\n\rerror_message\030\004 \001(\t\022\017\n\007partial\030\005 \001"
+    "(\010\022\023\n\013chunk_index\030\006 \001(\005\022\014\n\004done\030\007 \001(\010\" \n"
+    "\nAiCancelRq\022\022\n\nrequest_id\030\001 \001(\t\"\246\001\n\016AppC"
+    "lientHello\022\017\n\007version\030\001 \001(\r\022#\n\033client_ep"
+    "hemeral_public_key\030\002 \001(\014\022\024\n\014client_nonce"
+    "\030\003 \001(\014\022\030\n\020client_random_id\030\004 \001(\014\022.\n\014ciph"
+    "er_suite\030\005 \001(\0162\030.im.proto.AppCipherSuite"
+    "\"\303\001\n\016AppServerHello\022\017\n\007version\030\001 \001(\r\022#\n\033"
+    "server_ephemeral_public_key\030\002 \001(\014\022\024\n\014ser"
+    "ver_nonce\030\003 \001(\014\022\022\n\nsession_id\030\004 \001(\014\022\016\n\006k"
+    "ey_id\030\005 \001(\r\022\021\n\tsignature\030\006 \001(\014\022.\n\014cipher"
+    "_suite\030\007 \001(\0162\030.im.proto.AppCipherSuite\"\""
+    "\n\013AppFinished\022\023\n\013verify_data\030\001 \001(\014\"k\n\021Ap"
+    "pEncryptedFrame\022\017\n\007version\030\001 \001(\r\022\022\n\nsess"
+    "ion_id\030\002 \001(\014\022\020\n\010sequence\030\003 \001(\004\022\022\n\ncipher"
+    "text\030\004 \001(\014\022\013\n\003tag\030\005 \001(\014*(\n\007MsgType\022\010\n\004TE"
+    "XT\020\000\022\t\n\005IMAGE\020\001\022\010\n\004FILE\020\002*\332\001\n\rAiReplySta"
+    "tus\022\017\n\013AI_REPLY_OK\020\000\022\034\n\030AI_REPLY_INVALID"
+    "_REQUEST\020\001\022\031\n\025AI_REPLY_UNAUTHORIZED\020\002\022\027\n"
+    "\023AI_REPLY_NOT_FRIEND\020\003\022\031\n\025AI_REPLY_RATE_"
+    "LIMITED\020\004\022\021\n\rAI_REPLY_BUSY\020\005\022\033\n\027AI_REPLY"
+    "_NOT_CONFIGURED\020\006\022\033\n\027AI_REPLY_UPSTREAM_E"
+    "RROR\020\007*c\n\016AppCipherSuite\022\032\n\026APP_CIPHER_U"
+    "NSPECIFIED\020\000\0225\n1APP_CIPHER_X25519_ED2551"
+    "9_HKDF_SHA256_AES_256_GCM\020\001b\006proto3"
 };
 static ::absl::once_flag descriptor_table_im_2eproto_once;
 PROTOBUF_CONSTINIT const ::_pbi::DescriptorTable descriptor_table_im_2eproto = {
     false,
     false,
-    3343,
+    3475,
     descriptor_table_protodef_im_2eproto,
     "im.proto",
     &descriptor_table_im_2eproto_once,
@@ -6498,7 +6555,9 @@ PROTOBUF_NDEBUG_INLINE LoginRq::Impl_::Impl_(
         pass_(arena, from.pass_),
         device_id_(arena, from.device_id_),
         device_name_(arena, from.device_name_),
-        client_version_(arena, from.client_version_) {}
+        client_version_(arena, from.client_version_),
+        device_public_key_(arena, from.device_public_key_),
+        device_signature_(arena, from.device_signature_) {}
 
 LoginRq::LoginRq(
     ::google::protobuf::Arena* PROTOBUF_NULLABLE arena,
@@ -6525,7 +6584,9 @@ PROTOBUF_NDEBUG_INLINE LoginRq::Impl_::Impl_(
         pass_(arena),
         device_id_(arena),
         device_name_(arena),
-        client_version_(arena) {}
+        client_version_(arena),
+        device_public_key_(arena),
+        device_signature_(arena) {}
 
 inline void LoginRq::SharedCtor(::_pb::Arena* PROTOBUF_NULLABLE arena) {
   new (&_impl_) Impl_(internal_visibility(), arena);
@@ -6546,6 +6607,8 @@ inline void LoginRq::SharedDtor(MessageLite& self) {
   this_._impl_.device_id_.Destroy();
   this_._impl_.device_name_.Destroy();
   this_._impl_.client_version_.Destroy();
+  this_._impl_.device_public_key_.Destroy();
+  this_._impl_.device_signature_.Destroy();
   this_._impl_.~Impl_();
 }
 
@@ -6583,7 +6646,7 @@ PROTOBUF_NOINLINE void LoginRq::Clear() {
   (void) cached_has_bits;
 
   cached_has_bits = _impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x0000001fU)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x0000007fU)) {
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       _impl_.tel_.ClearNonDefaultToEmpty();
     }
@@ -6598,6 +6661,12 @@ PROTOBUF_NOINLINE void LoginRq::Clear() {
     }
     if (CheckHasBit(cached_has_bits, 0x00000010U)) {
       _impl_.client_version_.ClearNonDefaultToEmpty();
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000020U)) {
+      _impl_.device_public_key_.ClearNonDefaultToEmpty();
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000040U)) {
+      _impl_.device_signature_.ClearNonDefaultToEmpty();
     }
   }
   _impl_._has_bits_.Clear();
@@ -6673,6 +6742,22 @@ PROTOBUF_NOINLINE void LoginRq::Clear() {
     }
   }
 
+  // bytes device_public_key = 6;
+  if (CheckHasBit(cached_has_bits, 0x00000020U)) {
+    if (!this_._internal_device_public_key().empty()) {
+      const ::std::string& _s = this_._internal_device_public_key();
+      target = stream->WriteBytesMaybeAliased(6, _s, target);
+    }
+  }
+
+  // bytes device_signature = 7;
+  if (CheckHasBit(cached_has_bits, 0x00000040U)) {
+    if (!this_._internal_device_signature().empty()) {
+      const ::std::string& _s = this_._internal_device_signature();
+      target = stream->WriteBytesMaybeAliased(7, _s, target);
+    }
+  }
+
   if (ABSL_PREDICT_FALSE(this_._internal_metadata_.have_unknown_fields())) {
     target =
         ::_pbi::WireFormat::InternalSerializeUnknownFieldsToArray(
@@ -6698,7 +6783,7 @@ PROTOBUF_NOINLINE void LoginRq::Clear() {
 
   ::_pbi::Prefetch5LinesFrom7Lines(&this_);
   cached_has_bits = this_._impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x0000001fU)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x0000007fU)) {
     // string tel = 1;
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       if (!this_._internal_tel().empty()) {
@@ -6734,6 +6819,20 @@ PROTOBUF_NOINLINE void LoginRq::Clear() {
                                         this_._internal_client_version());
       }
     }
+    // bytes device_public_key = 6;
+    if (CheckHasBit(cached_has_bits, 0x00000020U)) {
+      if (!this_._internal_device_public_key().empty()) {
+        total_size += 1 + ::google::protobuf::internal::WireFormatLite::BytesSize(
+                                        this_._internal_device_public_key());
+      }
+    }
+    // bytes device_signature = 7;
+    if (CheckHasBit(cached_has_bits, 0x00000040U)) {
+      if (!this_._internal_device_signature().empty()) {
+        total_size += 1 + ::google::protobuf::internal::WireFormatLite::BytesSize(
+                                        this_._internal_device_signature());
+      }
+    }
   }
   return this_.MaybeComputeUnknownFieldsSize(total_size,
                                              &this_._impl_._cached_size_);
@@ -6752,7 +6851,7 @@ void LoginRq::MergeImpl(::google::protobuf::MessageLite& to_msg,
   (void)cached_has_bits;
 
   cached_has_bits = from._impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x0000001fU)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x0000007fU)) {
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       if (!from._internal_tel().empty()) {
         _this->_internal_set_tel(from._internal_tel());
@@ -6798,6 +6897,24 @@ void LoginRq::MergeImpl(::google::protobuf::MessageLite& to_msg,
         }
       }
     }
+    if (CheckHasBit(cached_has_bits, 0x00000020U)) {
+      if (!from._internal_device_public_key().empty()) {
+        _this->_internal_set_device_public_key(from._internal_device_public_key());
+      } else {
+        if (_this->_impl_.device_public_key_.IsDefault()) {
+          _this->_internal_set_device_public_key("");
+        }
+      }
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000040U)) {
+      if (!from._internal_device_signature().empty()) {
+        _this->_internal_set_device_signature(from._internal_device_signature());
+      } else {
+        if (_this->_impl_.device_signature_.IsDefault()) {
+          _this->_internal_set_device_signature("");
+        }
+      }
+    }
   }
   _this->_impl_._has_bits_[0] |= cached_has_bits;
   _this->_internal_metadata_.MergeFrom<::google::protobuf::UnknownFieldSet>(
@@ -6823,6 +6940,8 @@ void LoginRq::InternalSwap(LoginRq* PROTOBUF_RESTRICT PROTOBUF_NONNULL other) {
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.device_id_, &other->_impl_.device_id_, arena);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.device_name_, &other->_impl_.device_name_, arena);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.client_version_, &other->_impl_.client_version_, arena);
+  ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.device_public_key_, &other->_impl_.device_public_key_, arena);
+  ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.device_signature_, &other->_impl_.device_signature_, arena);
 }
 
 ::google::protobuf::Metadata LoginRq::GetMetadata() const {
@@ -7240,7 +7359,8 @@ PROTOBUF_NDEBUG_INLINE RefreshTokenRq::Impl_::Impl_(
         _cached_size_{0},
         refresh_token_(arena, from.refresh_token_),
         device_id_(arena, from.device_id_),
-        request_id_(arena, from.request_id_) {}
+        request_id_(arena, from.request_id_),
+        device_signature_(arena, from.device_signature_) {}
 
 RefreshTokenRq::RefreshTokenRq(
     ::google::protobuf::Arena* PROTOBUF_NULLABLE arena,
@@ -7265,7 +7385,8 @@ PROTOBUF_NDEBUG_INLINE RefreshTokenRq::Impl_::Impl_(
       : _cached_size_{0},
         refresh_token_(arena),
         device_id_(arena),
-        request_id_(arena) {}
+        request_id_(arena),
+        device_signature_(arena) {}
 
 inline void RefreshTokenRq::SharedCtor(::_pb::Arena* PROTOBUF_NULLABLE arena) {
   new (&_impl_) Impl_(internal_visibility(), arena);
@@ -7284,6 +7405,7 @@ inline void RefreshTokenRq::SharedDtor(MessageLite& self) {
   this_._impl_.refresh_token_.Destroy();
   this_._impl_.device_id_.Destroy();
   this_._impl_.request_id_.Destroy();
+  this_._impl_.device_signature_.Destroy();
   this_._impl_.~Impl_();
 }
 
@@ -7321,7 +7443,7 @@ PROTOBUF_NOINLINE void RefreshTokenRq::Clear() {
   (void) cached_has_bits;
 
   cached_has_bits = _impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x0000000fU)) {
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       _impl_.refresh_token_.ClearNonDefaultToEmpty();
     }
@@ -7330,6 +7452,9 @@ PROTOBUF_NOINLINE void RefreshTokenRq::Clear() {
     }
     if (CheckHasBit(cached_has_bits, 0x00000004U)) {
       _impl_.request_id_.ClearNonDefaultToEmpty();
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000008U)) {
+      _impl_.device_signature_.ClearNonDefaultToEmpty();
     }
   }
   _impl_._has_bits_.Clear();
@@ -7385,6 +7510,14 @@ PROTOBUF_NOINLINE void RefreshTokenRq::Clear() {
     }
   }
 
+  // bytes device_signature = 4;
+  if (CheckHasBit(cached_has_bits, 0x00000008U)) {
+    if (!this_._internal_device_signature().empty()) {
+      const ::std::string& _s = this_._internal_device_signature();
+      target = stream->WriteBytesMaybeAliased(4, _s, target);
+    }
+  }
+
   if (ABSL_PREDICT_FALSE(this_._internal_metadata_.have_unknown_fields())) {
     target =
         ::_pbi::WireFormat::InternalSerializeUnknownFieldsToArray(
@@ -7410,7 +7543,7 @@ PROTOBUF_NOINLINE void RefreshTokenRq::Clear() {
 
   ::_pbi::Prefetch5LinesFrom7Lines(&this_);
   cached_has_bits = this_._impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x0000000fU)) {
     // string refresh_token = 1;
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       if (!this_._internal_refresh_token().empty()) {
@@ -7432,6 +7565,13 @@ PROTOBUF_NOINLINE void RefreshTokenRq::Clear() {
                                         this_._internal_request_id());
       }
     }
+    // bytes device_signature = 4;
+    if (CheckHasBit(cached_has_bits, 0x00000008U)) {
+      if (!this_._internal_device_signature().empty()) {
+        total_size += 1 + ::google::protobuf::internal::WireFormatLite::BytesSize(
+                                        this_._internal_device_signature());
+      }
+    }
   }
   return this_.MaybeComputeUnknownFieldsSize(total_size,
                                              &this_._impl_._cached_size_);
@@ -7450,7 +7590,7 @@ void RefreshTokenRq::MergeImpl(::google::protobuf::MessageLite& to_msg,
   (void)cached_has_bits;
 
   cached_has_bits = from._impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x0000000fU)) {
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       if (!from._internal_refresh_token().empty()) {
         _this->_internal_set_refresh_token(from._internal_refresh_token());
@@ -7478,6 +7618,15 @@ void RefreshTokenRq::MergeImpl(::google::protobuf::MessageLite& to_msg,
         }
       }
     }
+    if (CheckHasBit(cached_has_bits, 0x00000008U)) {
+      if (!from._internal_device_signature().empty()) {
+        _this->_internal_set_device_signature(from._internal_device_signature());
+      } else {
+        if (_this->_impl_.device_signature_.IsDefault()) {
+          _this->_internal_set_device_signature("");
+        }
+      }
+    }
   }
   _this->_impl_._has_bits_[0] |= cached_has_bits;
   _this->_internal_metadata_.MergeFrom<::google::protobuf::UnknownFieldSet>(
@@ -7501,6 +7650,7 @@ void RefreshTokenRq::InternalSwap(RefreshTokenRq* PROTOBUF_RESTRICT PROTOBUF_NON
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.refresh_token_, &other->_impl_.refresh_token_, arena);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.device_id_, &other->_impl_.device_id_, arena);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.request_id_, &other->_impl_.request_id_, arena);
+  ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.device_signature_, &other->_impl_.device_signature_, arena);
 }
 
 ::google::protobuf::Metadata RefreshTokenRq::GetMetadata() const {
@@ -7897,7 +8047,8 @@ PROTOBUF_NDEBUG_INLINE TokenLoginRq::Impl_::Impl_(
         _cached_size_{0},
         access_token_(arena, from.access_token_),
         device_id_(arena, from.device_id_),
-        request_id_(arena, from.request_id_) {}
+        request_id_(arena, from.request_id_),
+        device_signature_(arena, from.device_signature_) {}
 
 TokenLoginRq::TokenLoginRq(
     ::google::protobuf::Arena* PROTOBUF_NULLABLE arena,
@@ -7922,7 +8073,8 @@ PROTOBUF_NDEBUG_INLINE TokenLoginRq::Impl_::Impl_(
       : _cached_size_{0},
         access_token_(arena),
         device_id_(arena),
-        request_id_(arena) {}
+        request_id_(arena),
+        device_signature_(arena) {}
 
 inline void TokenLoginRq::SharedCtor(::_pb::Arena* PROTOBUF_NULLABLE arena) {
   new (&_impl_) Impl_(internal_visibility(), arena);
@@ -7941,6 +8093,7 @@ inline void TokenLoginRq::SharedDtor(MessageLite& self) {
   this_._impl_.access_token_.Destroy();
   this_._impl_.device_id_.Destroy();
   this_._impl_.request_id_.Destroy();
+  this_._impl_.device_signature_.Destroy();
   this_._impl_.~Impl_();
 }
 
@@ -7978,7 +8131,7 @@ PROTOBUF_NOINLINE void TokenLoginRq::Clear() {
   (void) cached_has_bits;
 
   cached_has_bits = _impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x0000000fU)) {
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       _impl_.access_token_.ClearNonDefaultToEmpty();
     }
@@ -7987,6 +8140,9 @@ PROTOBUF_NOINLINE void TokenLoginRq::Clear() {
     }
     if (CheckHasBit(cached_has_bits, 0x00000004U)) {
       _impl_.request_id_.ClearNonDefaultToEmpty();
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000008U)) {
+      _impl_.device_signature_.ClearNonDefaultToEmpty();
     }
   }
   _impl_._has_bits_.Clear();
@@ -8042,6 +8198,14 @@ PROTOBUF_NOINLINE void TokenLoginRq::Clear() {
     }
   }
 
+  // bytes device_signature = 5;
+  if (CheckHasBit(cached_has_bits, 0x00000008U)) {
+    if (!this_._internal_device_signature().empty()) {
+      const ::std::string& _s = this_._internal_device_signature();
+      target = stream->WriteBytesMaybeAliased(5, _s, target);
+    }
+  }
+
   if (ABSL_PREDICT_FALSE(this_._internal_metadata_.have_unknown_fields())) {
     target =
         ::_pbi::WireFormat::InternalSerializeUnknownFieldsToArray(
@@ -8067,7 +8231,7 @@ PROTOBUF_NOINLINE void TokenLoginRq::Clear() {
 
   ::_pbi::Prefetch5LinesFrom7Lines(&this_);
   cached_has_bits = this_._impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x0000000fU)) {
     // string access_token = 1;
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       if (!this_._internal_access_token().empty()) {
@@ -8089,6 +8253,13 @@ PROTOBUF_NOINLINE void TokenLoginRq::Clear() {
                                         this_._internal_request_id());
       }
     }
+    // bytes device_signature = 5;
+    if (CheckHasBit(cached_has_bits, 0x00000008U)) {
+      if (!this_._internal_device_signature().empty()) {
+        total_size += 1 + ::google::protobuf::internal::WireFormatLite::BytesSize(
+                                        this_._internal_device_signature());
+      }
+    }
   }
   return this_.MaybeComputeUnknownFieldsSize(total_size,
                                              &this_._impl_._cached_size_);
@@ -8107,7 +8278,7 @@ void TokenLoginRq::MergeImpl(::google::protobuf::MessageLite& to_msg,
   (void)cached_has_bits;
 
   cached_has_bits = from._impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x0000000fU)) {
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       if (!from._internal_access_token().empty()) {
         _this->_internal_set_access_token(from._internal_access_token());
@@ -8135,6 +8306,15 @@ void TokenLoginRq::MergeImpl(::google::protobuf::MessageLite& to_msg,
         }
       }
     }
+    if (CheckHasBit(cached_has_bits, 0x00000008U)) {
+      if (!from._internal_device_signature().empty()) {
+        _this->_internal_set_device_signature(from._internal_device_signature());
+      } else {
+        if (_this->_impl_.device_signature_.IsDefault()) {
+          _this->_internal_set_device_signature("");
+        }
+      }
+    }
   }
   _this->_impl_._has_bits_[0] |= cached_has_bits;
   _this->_internal_metadata_.MergeFrom<::google::protobuf::UnknownFieldSet>(
@@ -8158,6 +8338,7 @@ void TokenLoginRq::InternalSwap(TokenLoginRq* PROTOBUF_RESTRICT PROTOBUF_NONNULL
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.access_token_, &other->_impl_.access_token_, arena);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.device_id_, &other->_impl_.device_id_, arena);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.request_id_, &other->_impl_.request_id_, arena);
+  ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.device_signature_, &other->_impl_.device_signature_, arena);
 }
 
 ::google::protobuf::Metadata TokenLoginRq::GetMetadata() const {
@@ -8430,7 +8611,8 @@ PROTOBUF_NDEBUG_INLINE LogoutRq::Impl_::Impl_(
       : _has_bits_{from._has_bits_},
         _cached_size_{0},
         refresh_token_(arena, from.refresh_token_),
-        device_id_(arena, from.device_id_) {}
+        device_id_(arena, from.device_id_),
+        device_signature_(arena, from.device_signature_) {}
 
 LogoutRq::LogoutRq(
     ::google::protobuf::Arena* PROTOBUF_NULLABLE arena,
@@ -8455,7 +8637,8 @@ PROTOBUF_NDEBUG_INLINE LogoutRq::Impl_::Impl_(
     [[maybe_unused]] ::google::protobuf::Arena* PROTOBUF_NULLABLE arena)
       : _cached_size_{0},
         refresh_token_(arena),
-        device_id_(arena) {}
+        device_id_(arena),
+        device_signature_(arena) {}
 
 inline void LogoutRq::SharedCtor(::_pb::Arena* PROTOBUF_NULLABLE arena) {
   new (&_impl_) Impl_(internal_visibility(), arena);
@@ -8474,6 +8657,7 @@ inline void LogoutRq::SharedDtor(MessageLite& self) {
   ABSL_DCHECK(this_.GetArena() == nullptr);
   this_._impl_.refresh_token_.Destroy();
   this_._impl_.device_id_.Destroy();
+  this_._impl_.device_signature_.Destroy();
   this_._impl_.~Impl_();
 }
 
@@ -8511,12 +8695,15 @@ PROTOBUF_NOINLINE void LogoutRq::Clear() {
   (void) cached_has_bits;
 
   cached_has_bits = _impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000003U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       _impl_.refresh_token_.ClearNonDefaultToEmpty();
     }
     if (CheckHasBit(cached_has_bits, 0x00000002U)) {
       _impl_.device_id_.ClearNonDefaultToEmpty();
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+      _impl_.device_signature_.ClearNonDefaultToEmpty();
     }
   }
   _impl_.logout_all_devices_ = false;
@@ -8564,11 +8751,19 @@ PROTOBUF_NOINLINE void LogoutRq::Clear() {
   }
 
   // bool logout_all_devices = 3;
-  if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+  if (CheckHasBit(cached_has_bits, 0x00000008U)) {
     if (this_._internal_logout_all_devices() != 0) {
       target = stream->EnsureSpace(target);
       target = ::_pbi::WireFormatLite::WriteBoolToArray(
           3, this_._internal_logout_all_devices(), target);
+    }
+  }
+
+  // bytes device_signature = 4;
+  if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+    if (!this_._internal_device_signature().empty()) {
+      const ::std::string& _s = this_._internal_device_signature();
+      target = stream->WriteBytesMaybeAliased(4, _s, target);
     }
   }
 
@@ -8597,7 +8792,7 @@ PROTOBUF_NOINLINE void LogoutRq::Clear() {
 
   ::_pbi::Prefetch5LinesFrom7Lines(&this_);
   cached_has_bits = this_._impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x0000000fU)) {
     // string refresh_token = 1;
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       if (!this_._internal_refresh_token().empty()) {
@@ -8612,8 +8807,15 @@ PROTOBUF_NOINLINE void LogoutRq::Clear() {
                                         this_._internal_device_id());
       }
     }
-    // bool logout_all_devices = 3;
+    // bytes device_signature = 4;
     if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+      if (!this_._internal_device_signature().empty()) {
+        total_size += 1 + ::google::protobuf::internal::WireFormatLite::BytesSize(
+                                        this_._internal_device_signature());
+      }
+    }
+    // bool logout_all_devices = 3;
+    if (CheckHasBit(cached_has_bits, 0x00000008U)) {
       if (this_._internal_logout_all_devices() != 0) {
         total_size += 2;
       }
@@ -8636,7 +8838,7 @@ void LogoutRq::MergeImpl(::google::protobuf::MessageLite& to_msg,
   (void)cached_has_bits;
 
   cached_has_bits = from._impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x0000000fU)) {
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       if (!from._internal_refresh_token().empty()) {
         _this->_internal_set_refresh_token(from._internal_refresh_token());
@@ -8656,6 +8858,15 @@ void LogoutRq::MergeImpl(::google::protobuf::MessageLite& to_msg,
       }
     }
     if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+      if (!from._internal_device_signature().empty()) {
+        _this->_internal_set_device_signature(from._internal_device_signature());
+      } else {
+        if (_this->_impl_.device_signature_.IsDefault()) {
+          _this->_internal_set_device_signature("");
+        }
+      }
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000008U)) {
       if (from._internal_logout_all_devices() != 0) {
         _this->_impl_.logout_all_devices_ = from._impl_.logout_all_devices_;
       }
@@ -8682,6 +8893,7 @@ void LogoutRq::InternalSwap(LogoutRq* PROTOBUF_RESTRICT PROTOBUF_NONNULL other) 
   swap(_impl_._has_bits_[0], other->_impl_._has_bits_[0]);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.refresh_token_, &other->_impl_.refresh_token_, arena);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.device_id_, &other->_impl_.device_id_, arena);
+  ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.device_signature_, &other->_impl_.device_signature_, arena);
   swap(_impl_.logout_all_devices_, other->_impl_.logout_all_devices_);
 }
 

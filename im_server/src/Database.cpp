@@ -1,5 +1,6 @@
 #include "Database.h"
 #include "sha256.h"
+#include "crypto/AppCrypto.h"
 
 #include <sqlite3.h>
 #include <argon2.h>
@@ -65,6 +66,14 @@ std::string hashPasswordArgon2id(const std::string& passwordSecret)
 bool verifyPasswordArgon2id(const std::string& encoded, const std::string& passwordSecret)
 {
     return argon2id_verify(encoded.c_str(), passwordSecret.data(), passwordSecret.size()) == ARGON2_OK;
+}
+
+bool constantTimeStringEqual(const std::string& left, const std::string& right)
+{
+    if (left.size() != right.size()) return false;
+    const crypto::Bytes leftBytes(left.begin(), left.end());
+    const crypto::Bytes rightBytes(right.begin(), right.end());
+    return crypto::constantTimeEqual(leftBytes, rightBytes);
 }
 
 // 读取数据库版本
@@ -243,6 +252,13 @@ bool Database::open(const std::string& dbPath, int poolSize)
         // 用户设备索引
         "CREATE INDEX IF NOT EXISTS idx_auth_user_device "
         "ON auth_sessions(user_id,device_id);"
+        "CREATE TABLE IF NOT EXISTS device_keys("
+        "  user_id INTEGER NOT NULL,"
+        "  device_id TEXT NOT NULL,"
+        "  public_key BLOB NOT NULL,"
+        "  created_at INTEGER NOT NULL,"
+        "  PRIMARY KEY(user_id,device_id)"
+        ");"
         "CREATE INDEX IF NOT EXISTS idx_auth_family "
         "ON auth_sessions(family_id);"
         // 刷新令牌历史
@@ -426,7 +442,8 @@ int Database::loginUser(const std::string& tel, const std::string& passHash, int
     if (algorithm == "argon2id")
         return verifyPasswordArgon2id(stored, passHash) ? rc::LOGIN_SUCCESS : rc::LOGIN_PASSERROR;
 
-    if (im::sha256Hex(salt + passHash) != stored) return rc::LOGIN_PASSERROR;
+    const std::string legacyCandidate = im::sha256Hex(salt + passHash);
+    if (!constantTimeStringEqual(legacyCandidate, stored)) return rc::LOGIN_PASSERROR;
 
     // 老账号验证成功后立即升级；迁移失败不阻断本次合法登录，下次继续尝试。
     try {
@@ -455,6 +472,62 @@ int Database::loginUser(const std::string& tel, const std::string& passHash, int
         //下次登录继续尝试迁移
     }
     return rc::LOGIN_SUCCESS;
+}
+
+bool Database::bindDevicePublicKey(int userId, const std::string& deviceId,
+                                   const std::vector<std::uint8_t>& publicKeyDer)
+{
+    if (userId <= 0 || deviceId.empty() || publicKeyDer.empty()) return false;
+    return m_writeQueue.submit([&](sqlite3* db) {
+        sqlite3_stmt* st = nullptr;
+        if (sqlite3_prepare_v2(db,
+            "INSERT OR IGNORE INTO device_keys(user_id,device_id,public_key,created_at) VALUES(?,?,?,?);",
+            -1, &st, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_int(st, 1, userId);
+        sqlite3_bind_text(st, 2, deviceId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_blob(st, 3, publicKeyDer.data(), static_cast<int>(publicKeyDer.size()), SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 4, static_cast<sqlite3_int64>(std::time(nullptr)));
+        bool ok = sqlite3_step(st) == SQLITE_DONE;
+        sqlite3_finalize(st);
+        if (!ok || sqlite3_prepare_v2(db,
+            "SELECT public_key FROM device_keys WHERE user_id=? AND device_id=?;",
+            -1, &st, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_int(st, 1, userId);
+        sqlite3_bind_text(st, 2, deviceId.c_str(), -1, SQLITE_TRANSIENT);
+        ok = false;
+        if (sqlite3_step(st) == SQLITE_ROW) {
+            const auto* blob = static_cast<const std::uint8_t*>(sqlite3_column_blob(st, 0));
+            const int size = sqlite3_column_bytes(st, 0);
+            ok = size == static_cast<int>(publicKeyDer.size()) && blob &&
+                crypto::constantTimeEqual(crypto::Bytes(blob, blob + size), publicKeyDer);
+        }
+        sqlite3_finalize(st);
+        return ok;
+    });
+}
+
+bool Database::getDevicePublicKey(int userId, const std::string& deviceId,
+                                  std::vector<std::uint8_t>& outPublicKeyDer)
+{
+    Conn& c = acquire();
+    std::lock_guard<std::mutex> lock(c.mtx);
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(c.db,
+        "SELECT public_key FROM device_keys WHERE user_id=? AND device_id=?;",
+        -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(st, 1, userId);
+    sqlite3_bind_text(st, 2, deviceId.c_str(), -1, SQLITE_TRANSIENT);
+    bool ok = false;
+    if (sqlite3_step(st) == SQLITE_ROW) {
+        const auto* blob = static_cast<const std::uint8_t*>(sqlite3_column_blob(st, 0));
+        const int size = sqlite3_column_bytes(st, 0);
+        if (blob && size > 0) {
+            outPublicKeyDer.assign(blob, blob + size);
+            ok = true;
+        }
+    }
+    sqlite3_finalize(st);
+    return ok;
 }
 
 bool Database::getUser(int id, UserRecord& out)

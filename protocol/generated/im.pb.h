@@ -848,6 +848,7 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED TokenLoginRq final : public ::googl
     kAccessTokenFieldNumber = 1,
     kDeviceIdFieldNumber = 3,
     kRequestIdFieldNumber = 4,
+    kDeviceSignatureFieldNumber = 5,
   };
   // string access_token = 1;
   void clear_access_token() ;
@@ -894,11 +895,26 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED TokenLoginRq final : public ::googl
   ::std::string* PROTOBUF_NONNULL _internal_mutable_request_id();
 
   public:
+  // bytes device_signature = 5;
+  void clear_device_signature() ;
+  [[nodiscard]] const ::std::string& device_signature() const;
+  template <typename Arg_ = const ::std::string&, typename... Args_>
+  void set_device_signature(Arg_&& arg, Args_... args);
+  ::std::string* PROTOBUF_NONNULL mutable_device_signature();
+  [[nodiscard]] ::std::string* PROTOBUF_NULLABLE release_device_signature();
+  void set_allocated_device_signature(::std::string* PROTOBUF_NULLABLE value);
+
+  private:
+  const ::std::string& _internal_device_signature() const;
+  PROTOBUF_ALWAYS_INLINE void _internal_set_device_signature(const ::std::string& value);
+  ::std::string* PROTOBUF_NONNULL _internal_mutable_device_signature();
+
+  public:
   // @@protoc_insertion_point(class_scope:im.proto.TokenLoginRq)
  private:
   class _Internal;
   using ParseTableT_ =
-      ::google::protobuf::internal::TcParseTable<2, 3,
+      ::google::protobuf::internal::TcParseTable<3, 4,
                           0, 61,
                           2>;
   static constexpr ParseTableT_ InternalGenerateParseTable_(
@@ -930,6 +946,7 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED TokenLoginRq final : public ::googl
     ::google::protobuf::internal::ArenaStringPtr access_token_;
     ::google::protobuf::internal::ArenaStringPtr device_id_;
     ::google::protobuf::internal::ArenaStringPtr request_id_;
+    ::google::protobuf::internal::ArenaStringPtr device_signature_;
     PROTOBUF_TSAN_DECLARE_MEMBER
   };
   union { Impl_ _impl_; };
@@ -2243,6 +2260,7 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED RefreshTokenRq final : public ::goo
     kRefreshTokenFieldNumber = 1,
     kDeviceIdFieldNumber = 2,
     kRequestIdFieldNumber = 3,
+    kDeviceSignatureFieldNumber = 4,
   };
   // string refresh_token = 1;
   void clear_refresh_token() ;
@@ -2289,11 +2307,26 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED RefreshTokenRq final : public ::goo
   ::std::string* PROTOBUF_NONNULL _internal_mutable_request_id();
 
   public:
+  // bytes device_signature = 4;
+  void clear_device_signature() ;
+  [[nodiscard]] const ::std::string& device_signature() const;
+  template <typename Arg_ = const ::std::string&, typename... Args_>
+  void set_device_signature(Arg_&& arg, Args_... args);
+  ::std::string* PROTOBUF_NONNULL mutable_device_signature();
+  [[nodiscard]] ::std::string* PROTOBUF_NULLABLE release_device_signature();
+  void set_allocated_device_signature(::std::string* PROTOBUF_NULLABLE value);
+
+  private:
+  const ::std::string& _internal_device_signature() const;
+  PROTOBUF_ALWAYS_INLINE void _internal_set_device_signature(const ::std::string& value);
+  ::std::string* PROTOBUF_NONNULL _internal_mutable_device_signature();
+
+  public:
   // @@protoc_insertion_point(class_scope:im.proto.RefreshTokenRq)
  private:
   class _Internal;
   using ParseTableT_ =
-      ::google::protobuf::internal::TcParseTable<2, 3,
+      ::google::protobuf::internal::TcParseTable<2, 4,
                           0, 64,
                           2>;
   static constexpr ParseTableT_ InternalGenerateParseTable_(
@@ -2325,6 +2358,7 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED RefreshTokenRq final : public ::goo
     ::google::protobuf::internal::ArenaStringPtr refresh_token_;
     ::google::protobuf::internal::ArenaStringPtr device_id_;
     ::google::protobuf::internal::ArenaStringPtr request_id_;
+    ::google::protobuf::internal::ArenaStringPtr device_signature_;
     PROTOBUF_TSAN_DECLARE_MEMBER
   };
   union { Impl_ _impl_; };
@@ -2683,6 +2717,7 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED LogoutRq final : public ::google::p
   enum : int {
     kRefreshTokenFieldNumber = 1,
     kDeviceIdFieldNumber = 2,
+    kDeviceSignatureFieldNumber = 4,
     kLogoutAllDevicesFieldNumber = 3,
   };
   // string refresh_token = 1;
@@ -2715,6 +2750,21 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED LogoutRq final : public ::google::p
   ::std::string* PROTOBUF_NONNULL _internal_mutable_device_id();
 
   public:
+  // bytes device_signature = 4;
+  void clear_device_signature() ;
+  [[nodiscard]] const ::std::string& device_signature() const;
+  template <typename Arg_ = const ::std::string&, typename... Args_>
+  void set_device_signature(Arg_&& arg, Args_... args);
+  ::std::string* PROTOBUF_NONNULL mutable_device_signature();
+  [[nodiscard]] ::std::string* PROTOBUF_NULLABLE release_device_signature();
+  void set_allocated_device_signature(::std::string* PROTOBUF_NULLABLE value);
+
+  private:
+  const ::std::string& _internal_device_signature() const;
+  PROTOBUF_ALWAYS_INLINE void _internal_set_device_signature(const ::std::string& value);
+  ::std::string* PROTOBUF_NONNULL _internal_mutable_device_signature();
+
+  public:
   // bool logout_all_devices = 3;
   void clear_logout_all_devices() ;
   [[nodiscard]] bool logout_all_devices() const;
@@ -2729,7 +2779,7 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED LogoutRq final : public ::google::p
  private:
   class _Internal;
   using ParseTableT_ =
-      ::google::protobuf::internal::TcParseTable<2, 3,
+      ::google::protobuf::internal::TcParseTable<2, 4,
                           0, 48,
                           2>;
   static constexpr ParseTableT_ InternalGenerateParseTable_(
@@ -2760,6 +2810,7 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED LogoutRq final : public ::google::p
     ::google::protobuf::internal::CachedSize _cached_size_;
     ::google::protobuf::internal::ArenaStringPtr refresh_token_;
     ::google::protobuf::internal::ArenaStringPtr device_id_;
+    ::google::protobuf::internal::ArenaStringPtr device_signature_;
     bool logout_all_devices_;
     PROTOBUF_TSAN_DECLARE_MEMBER
   };
@@ -3209,6 +3260,8 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED LoginRq final : public ::google::pr
     kDeviceIdFieldNumber = 3,
     kDeviceNameFieldNumber = 4,
     kClientVersionFieldNumber = 5,
+    kDevicePublicKeyFieldNumber = 6,
+    kDeviceSignatureFieldNumber = 7,
   };
   // string tel = 1;
   void clear_tel() ;
@@ -3285,11 +3338,41 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED LoginRq final : public ::google::pr
   ::std::string* PROTOBUF_NONNULL _internal_mutable_client_version();
 
   public:
+  // bytes device_public_key = 6;
+  void clear_device_public_key() ;
+  [[nodiscard]] const ::std::string& device_public_key() const;
+  template <typename Arg_ = const ::std::string&, typename... Args_>
+  void set_device_public_key(Arg_&& arg, Args_... args);
+  ::std::string* PROTOBUF_NONNULL mutable_device_public_key();
+  [[nodiscard]] ::std::string* PROTOBUF_NULLABLE release_device_public_key();
+  void set_allocated_device_public_key(::std::string* PROTOBUF_NULLABLE value);
+
+  private:
+  const ::std::string& _internal_device_public_key() const;
+  PROTOBUF_ALWAYS_INLINE void _internal_set_device_public_key(const ::std::string& value);
+  ::std::string* PROTOBUF_NONNULL _internal_mutable_device_public_key();
+
+  public:
+  // bytes device_signature = 7;
+  void clear_device_signature() ;
+  [[nodiscard]] const ::std::string& device_signature() const;
+  template <typename Arg_ = const ::std::string&, typename... Args_>
+  void set_device_signature(Arg_&& arg, Args_... args);
+  ::std::string* PROTOBUF_NONNULL mutable_device_signature();
+  [[nodiscard]] ::std::string* PROTOBUF_NULLABLE release_device_signature();
+  void set_allocated_device_signature(::std::string* PROTOBUF_NULLABLE value);
+
+  private:
+  const ::std::string& _internal_device_signature() const;
+  PROTOBUF_ALWAYS_INLINE void _internal_set_device_signature(const ::std::string& value);
+  ::std::string* PROTOBUF_NONNULL _internal_mutable_device_signature();
+
+  public:
   // @@protoc_insertion_point(class_scope:im.proto.LoginRq)
  private:
   class _Internal;
   using ParseTableT_ =
-      ::google::protobuf::internal::TcParseTable<3, 5,
+      ::google::protobuf::internal::TcParseTable<3, 7,
                           0, 66,
                           2>;
   static constexpr ParseTableT_ InternalGenerateParseTable_(
@@ -3323,6 +3406,8 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED LoginRq final : public ::google::pr
     ::google::protobuf::internal::ArenaStringPtr device_id_;
     ::google::protobuf::internal::ArenaStringPtr device_name_;
     ::google::protobuf::internal::ArenaStringPtr client_version_;
+    ::google::protobuf::internal::ArenaStringPtr device_public_key_;
+    ::google::protobuf::internal::ArenaStringPtr device_signature_;
     PROTOBUF_TSAN_DECLARE_MEMBER
   };
   union { Impl_ _impl_; };
@@ -8776,6 +8861,134 @@ inline void LoginRq::set_allocated_client_version(::std::string* PROTOBUF_NULLAB
   // @@protoc_insertion_point(field_set_allocated:im.proto.LoginRq.client_version)
 }
 
+// bytes device_public_key = 6;
+inline void LoginRq::clear_device_public_key() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.device_public_key_.ClearToEmpty();
+  ClearHasBit(_impl_._has_bits_[0], 0x00000020U);
+}
+inline const ::std::string& LoginRq::device_public_key() const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:im.proto.LoginRq.device_public_key)
+  return _internal_device_public_key();
+}
+template <typename Arg_, typename... Args_>
+PROTOBUF_ALWAYS_INLINE void LoginRq::set_device_public_key(Arg_&& arg, Args_... args) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  SetHasBit(_impl_._has_bits_[0], 0x00000020U);
+  _impl_.device_public_key_.SetBytes(static_cast<Arg_&&>(arg), args..., GetArena());
+  // @@protoc_insertion_point(field_set:im.proto.LoginRq.device_public_key)
+}
+inline ::std::string* PROTOBUF_NONNULL LoginRq::mutable_device_public_key()
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  SetHasBit(_impl_._has_bits_[0], 0x00000020U);
+  ::std::string* _s = _internal_mutable_device_public_key();
+  // @@protoc_insertion_point(field_mutable:im.proto.LoginRq.device_public_key)
+  return _s;
+}
+inline const ::std::string& LoginRq::_internal_device_public_key() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.device_public_key_.Get();
+}
+inline void LoginRq::_internal_set_device_public_key(const ::std::string& value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.device_public_key_.Set(value, GetArena());
+}
+inline ::std::string* PROTOBUF_NONNULL LoginRq::_internal_mutable_device_public_key() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  return _impl_.device_public_key_.Mutable( GetArena());
+}
+inline ::std::string* PROTOBUF_NULLABLE LoginRq::release_device_public_key() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  // @@protoc_insertion_point(field_release:im.proto.LoginRq.device_public_key)
+  if (!CheckHasBit(_impl_._has_bits_[0], 0x00000020U)) {
+    return nullptr;
+  }
+  ClearHasBit(_impl_._has_bits_[0], 0x00000020U);
+  auto* released = _impl_.device_public_key_.Release();
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
+    _impl_.device_public_key_.Set("", GetArena());
+  }
+  return released;
+}
+inline void LoginRq::set_allocated_device_public_key(::std::string* PROTOBUF_NULLABLE value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (value != nullptr) {
+    SetHasBit(_impl_._has_bits_[0], 0x00000020U);
+  } else {
+    ClearHasBit(_impl_._has_bits_[0], 0x00000020U);
+  }
+  _impl_.device_public_key_.SetAllocated(value, GetArena());
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.device_public_key_.IsDefault()) {
+    _impl_.device_public_key_.Set("", GetArena());
+  }
+  // @@protoc_insertion_point(field_set_allocated:im.proto.LoginRq.device_public_key)
+}
+
+// bytes device_signature = 7;
+inline void LoginRq::clear_device_signature() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.device_signature_.ClearToEmpty();
+  ClearHasBit(_impl_._has_bits_[0], 0x00000040U);
+}
+inline const ::std::string& LoginRq::device_signature() const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:im.proto.LoginRq.device_signature)
+  return _internal_device_signature();
+}
+template <typename Arg_, typename... Args_>
+PROTOBUF_ALWAYS_INLINE void LoginRq::set_device_signature(Arg_&& arg, Args_... args) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  SetHasBit(_impl_._has_bits_[0], 0x00000040U);
+  _impl_.device_signature_.SetBytes(static_cast<Arg_&&>(arg), args..., GetArena());
+  // @@protoc_insertion_point(field_set:im.proto.LoginRq.device_signature)
+}
+inline ::std::string* PROTOBUF_NONNULL LoginRq::mutable_device_signature()
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  SetHasBit(_impl_._has_bits_[0], 0x00000040U);
+  ::std::string* _s = _internal_mutable_device_signature();
+  // @@protoc_insertion_point(field_mutable:im.proto.LoginRq.device_signature)
+  return _s;
+}
+inline const ::std::string& LoginRq::_internal_device_signature() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.device_signature_.Get();
+}
+inline void LoginRq::_internal_set_device_signature(const ::std::string& value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.device_signature_.Set(value, GetArena());
+}
+inline ::std::string* PROTOBUF_NONNULL LoginRq::_internal_mutable_device_signature() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  return _impl_.device_signature_.Mutable( GetArena());
+}
+inline ::std::string* PROTOBUF_NULLABLE LoginRq::release_device_signature() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  // @@protoc_insertion_point(field_release:im.proto.LoginRq.device_signature)
+  if (!CheckHasBit(_impl_._has_bits_[0], 0x00000040U)) {
+    return nullptr;
+  }
+  ClearHasBit(_impl_._has_bits_[0], 0x00000040U);
+  auto* released = _impl_.device_signature_.Release();
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
+    _impl_.device_signature_.Set("", GetArena());
+  }
+  return released;
+}
+inline void LoginRq::set_allocated_device_signature(::std::string* PROTOBUF_NULLABLE value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (value != nullptr) {
+    SetHasBit(_impl_._has_bits_[0], 0x00000040U);
+  } else {
+    ClearHasBit(_impl_._has_bits_[0], 0x00000040U);
+  }
+  _impl_.device_signature_.SetAllocated(value, GetArena());
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.device_signature_.IsDefault()) {
+    _impl_.device_signature_.Set("", GetArena());
+  }
+  // @@protoc_insertion_point(field_set_allocated:im.proto.LoginRq.device_signature)
+}
+
 // -------------------------------------------------------------------
 
 // LoginRs
@@ -9264,6 +9477,70 @@ inline void RefreshTokenRq::set_allocated_request_id(::std::string* PROTOBUF_NUL
   // @@protoc_insertion_point(field_set_allocated:im.proto.RefreshTokenRq.request_id)
 }
 
+// bytes device_signature = 4;
+inline void RefreshTokenRq::clear_device_signature() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.device_signature_.ClearToEmpty();
+  ClearHasBit(_impl_._has_bits_[0], 0x00000008U);
+}
+inline const ::std::string& RefreshTokenRq::device_signature() const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:im.proto.RefreshTokenRq.device_signature)
+  return _internal_device_signature();
+}
+template <typename Arg_, typename... Args_>
+PROTOBUF_ALWAYS_INLINE void RefreshTokenRq::set_device_signature(Arg_&& arg, Args_... args) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  SetHasBit(_impl_._has_bits_[0], 0x00000008U);
+  _impl_.device_signature_.SetBytes(static_cast<Arg_&&>(arg), args..., GetArena());
+  // @@protoc_insertion_point(field_set:im.proto.RefreshTokenRq.device_signature)
+}
+inline ::std::string* PROTOBUF_NONNULL RefreshTokenRq::mutable_device_signature()
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  SetHasBit(_impl_._has_bits_[0], 0x00000008U);
+  ::std::string* _s = _internal_mutable_device_signature();
+  // @@protoc_insertion_point(field_mutable:im.proto.RefreshTokenRq.device_signature)
+  return _s;
+}
+inline const ::std::string& RefreshTokenRq::_internal_device_signature() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.device_signature_.Get();
+}
+inline void RefreshTokenRq::_internal_set_device_signature(const ::std::string& value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.device_signature_.Set(value, GetArena());
+}
+inline ::std::string* PROTOBUF_NONNULL RefreshTokenRq::_internal_mutable_device_signature() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  return _impl_.device_signature_.Mutable( GetArena());
+}
+inline ::std::string* PROTOBUF_NULLABLE RefreshTokenRq::release_device_signature() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  // @@protoc_insertion_point(field_release:im.proto.RefreshTokenRq.device_signature)
+  if (!CheckHasBit(_impl_._has_bits_[0], 0x00000008U)) {
+    return nullptr;
+  }
+  ClearHasBit(_impl_._has_bits_[0], 0x00000008U);
+  auto* released = _impl_.device_signature_.Release();
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
+    _impl_.device_signature_.Set("", GetArena());
+  }
+  return released;
+}
+inline void RefreshTokenRq::set_allocated_device_signature(::std::string* PROTOBUF_NULLABLE value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (value != nullptr) {
+    SetHasBit(_impl_._has_bits_[0], 0x00000008U);
+  } else {
+    ClearHasBit(_impl_._has_bits_[0], 0x00000008U);
+  }
+  _impl_.device_signature_.SetAllocated(value, GetArena());
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.device_signature_.IsDefault()) {
+    _impl_.device_signature_.Set("", GetArena());
+  }
+  // @@protoc_insertion_point(field_set_allocated:im.proto.RefreshTokenRq.device_signature)
+}
+
 // -------------------------------------------------------------------
 
 // RefreshTokenRs
@@ -9728,6 +10005,70 @@ inline void TokenLoginRq::set_allocated_request_id(::std::string* PROTOBUF_NULLA
   // @@protoc_insertion_point(field_set_allocated:im.proto.TokenLoginRq.request_id)
 }
 
+// bytes device_signature = 5;
+inline void TokenLoginRq::clear_device_signature() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.device_signature_.ClearToEmpty();
+  ClearHasBit(_impl_._has_bits_[0], 0x00000008U);
+}
+inline const ::std::string& TokenLoginRq::device_signature() const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:im.proto.TokenLoginRq.device_signature)
+  return _internal_device_signature();
+}
+template <typename Arg_, typename... Args_>
+PROTOBUF_ALWAYS_INLINE void TokenLoginRq::set_device_signature(Arg_&& arg, Args_... args) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  SetHasBit(_impl_._has_bits_[0], 0x00000008U);
+  _impl_.device_signature_.SetBytes(static_cast<Arg_&&>(arg), args..., GetArena());
+  // @@protoc_insertion_point(field_set:im.proto.TokenLoginRq.device_signature)
+}
+inline ::std::string* PROTOBUF_NONNULL TokenLoginRq::mutable_device_signature()
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  SetHasBit(_impl_._has_bits_[0], 0x00000008U);
+  ::std::string* _s = _internal_mutable_device_signature();
+  // @@protoc_insertion_point(field_mutable:im.proto.TokenLoginRq.device_signature)
+  return _s;
+}
+inline const ::std::string& TokenLoginRq::_internal_device_signature() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.device_signature_.Get();
+}
+inline void TokenLoginRq::_internal_set_device_signature(const ::std::string& value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.device_signature_.Set(value, GetArena());
+}
+inline ::std::string* PROTOBUF_NONNULL TokenLoginRq::_internal_mutable_device_signature() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  return _impl_.device_signature_.Mutable( GetArena());
+}
+inline ::std::string* PROTOBUF_NULLABLE TokenLoginRq::release_device_signature() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  // @@protoc_insertion_point(field_release:im.proto.TokenLoginRq.device_signature)
+  if (!CheckHasBit(_impl_._has_bits_[0], 0x00000008U)) {
+    return nullptr;
+  }
+  ClearHasBit(_impl_._has_bits_[0], 0x00000008U);
+  auto* released = _impl_.device_signature_.Release();
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
+    _impl_.device_signature_.Set("", GetArena());
+  }
+  return released;
+}
+inline void TokenLoginRq::set_allocated_device_signature(::std::string* PROTOBUF_NULLABLE value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (value != nullptr) {
+    SetHasBit(_impl_._has_bits_[0], 0x00000008U);
+  } else {
+    ClearHasBit(_impl_._has_bits_[0], 0x00000008U);
+  }
+  _impl_.device_signature_.SetAllocated(value, GetArena());
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.device_signature_.IsDefault()) {
+    _impl_.device_signature_.Set("", GetArena());
+  }
+  // @@protoc_insertion_point(field_set_allocated:im.proto.TokenLoginRq.device_signature)
+}
+
 // -------------------------------------------------------------------
 
 // TokenLoginRs
@@ -9940,7 +10281,7 @@ inline void LogoutRq::set_allocated_device_id(::std::string* PROTOBUF_NULLABLE v
 inline void LogoutRq::clear_logout_all_devices() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.logout_all_devices_ = false;
-  ClearHasBit(_impl_._has_bits_[0], 0x00000004U);
+  ClearHasBit(_impl_._has_bits_[0], 0x00000008U);
 }
 inline bool LogoutRq::logout_all_devices() const {
   // @@protoc_insertion_point(field_get:im.proto.LogoutRq.logout_all_devices)
@@ -9948,7 +10289,7 @@ inline bool LogoutRq::logout_all_devices() const {
 }
 inline void LogoutRq::set_logout_all_devices(bool value) {
   _internal_set_logout_all_devices(value);
-  SetHasBit(_impl_._has_bits_[0], 0x00000004U);
+  SetHasBit(_impl_._has_bits_[0], 0x00000008U);
   // @@protoc_insertion_point(field_set:im.proto.LogoutRq.logout_all_devices)
 }
 inline bool LogoutRq::_internal_logout_all_devices() const {
@@ -9958,6 +10299,70 @@ inline bool LogoutRq::_internal_logout_all_devices() const {
 inline void LogoutRq::_internal_set_logout_all_devices(bool value) {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.logout_all_devices_ = value;
+}
+
+// bytes device_signature = 4;
+inline void LogoutRq::clear_device_signature() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.device_signature_.ClearToEmpty();
+  ClearHasBit(_impl_._has_bits_[0], 0x00000004U);
+}
+inline const ::std::string& LogoutRq::device_signature() const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:im.proto.LogoutRq.device_signature)
+  return _internal_device_signature();
+}
+template <typename Arg_, typename... Args_>
+PROTOBUF_ALWAYS_INLINE void LogoutRq::set_device_signature(Arg_&& arg, Args_... args) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  SetHasBit(_impl_._has_bits_[0], 0x00000004U);
+  _impl_.device_signature_.SetBytes(static_cast<Arg_&&>(arg), args..., GetArena());
+  // @@protoc_insertion_point(field_set:im.proto.LogoutRq.device_signature)
+}
+inline ::std::string* PROTOBUF_NONNULL LogoutRq::mutable_device_signature()
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  SetHasBit(_impl_._has_bits_[0], 0x00000004U);
+  ::std::string* _s = _internal_mutable_device_signature();
+  // @@protoc_insertion_point(field_mutable:im.proto.LogoutRq.device_signature)
+  return _s;
+}
+inline const ::std::string& LogoutRq::_internal_device_signature() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.device_signature_.Get();
+}
+inline void LogoutRq::_internal_set_device_signature(const ::std::string& value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.device_signature_.Set(value, GetArena());
+}
+inline ::std::string* PROTOBUF_NONNULL LogoutRq::_internal_mutable_device_signature() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  return _impl_.device_signature_.Mutable( GetArena());
+}
+inline ::std::string* PROTOBUF_NULLABLE LogoutRq::release_device_signature() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  // @@protoc_insertion_point(field_release:im.proto.LogoutRq.device_signature)
+  if (!CheckHasBit(_impl_._has_bits_[0], 0x00000004U)) {
+    return nullptr;
+  }
+  ClearHasBit(_impl_._has_bits_[0], 0x00000004U);
+  auto* released = _impl_.device_signature_.Release();
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
+    _impl_.device_signature_.Set("", GetArena());
+  }
+  return released;
+}
+inline void LogoutRq::set_allocated_device_signature(::std::string* PROTOBUF_NULLABLE value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (value != nullptr) {
+    SetHasBit(_impl_._has_bits_[0], 0x00000004U);
+  } else {
+    ClearHasBit(_impl_._has_bits_[0], 0x00000004U);
+  }
+  _impl_.device_signature_.SetAllocated(value, GetArena());
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.device_signature_.IsDefault()) {
+    _impl_.device_signature_.Set("", GetArena());
+  }
+  // @@protoc_insertion_point(field_set_allocated:im.proto.LogoutRq.device_signature)
 }
 
 // -------------------------------------------------------------------

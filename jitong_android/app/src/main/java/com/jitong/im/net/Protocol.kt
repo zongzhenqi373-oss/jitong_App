@@ -74,6 +74,7 @@ object Protocol {
     const val LOGIN_NOTEXIT = 1
     const val LOGIN_PASSERROR = 2
     const val LOGIN_INVALID = 3
+    const val LOGIN_RATE_LIMITED = 4
     const val REFRESH_TOKEN_SUCCESS = 0
     const val REFRESH_TOKEN_FAIL = 1
     const val LOGOUT_SUCCESS = 0

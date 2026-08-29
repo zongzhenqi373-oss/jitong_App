@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include "auth/LoginRateLimiter.h"
 
 namespace imsrv {
 class Database;
@@ -23,5 +24,6 @@ private:
     Database& m_db;
     Presence& m_presence;
     TokenService& m_tokens;
+    LoginRateLimiter m_loginLimiter;
 };
 } // namespace imsrv

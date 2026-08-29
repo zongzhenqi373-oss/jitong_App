@@ -92,6 +92,9 @@ public:
         return m_deviceId;
     }
 
+    const std::string& peerAddress() const { return m_peerAddress; }
+    const crypto::Bytes& appSessionId() const { return m_appSessionId; }
+
     std::int64_t accessExpiresAt() const
     {
         return m_accessExpiresAt.load();
@@ -155,6 +158,7 @@ private:
 
     std::string m_authSessionId;
     std::string m_deviceId;
+    std::string m_peerAddress = "unknown";
     std::atomic<std::int64_t>
     m_accessExpiresAt{0};
 

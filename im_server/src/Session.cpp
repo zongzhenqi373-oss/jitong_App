@@ -111,6 +111,9 @@ Session::Session(asio::ip::tcp::socket socket, Server& server, asio::ssl::contex
     , m_server(server)
     , m_handshakeTimer(m_streamsocket.get_executor())
 {
+    asio::error_code endpointError;
+    const auto endpoint = m_streamsocket.lowest_layer().remote_endpoint(endpointError);
+    if (!endpointError) m_peerAddress = endpoint.address().to_string();
 }
 
 void Session::start()

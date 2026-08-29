@@ -2,6 +2,7 @@ package com.jitong.im.net
 
 import com.jitong.im.data.Prefs
 import com.jitong.im.data.crypto.TokenVault.TokenSession
+import com.jitong.im.data.crypto.DeviceIdentity
 import im.proto.Im
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -236,40 +237,65 @@ class ImClient {
         pass: String,
         deviceId: String,
     ) {
+        val passHash = sha256Hex(pass)
+        val channel = secureChannel ?: throw java.io.IOException("安全通道未建立")
+        val publicKey = DeviceIdentity.publicKey()
+        val proof = DeviceProof.message(
+            "password-login", channel.sessionId, deviceId,
+            "$tel\u0000$passHash".toByteArray(), publicKey,
+        )
         val rq = Im.LoginRq.newBuilder()
             .setTel(tel)
-            .setPass(sha256Hex(pass))
+            .setPass(passHash)
             .setDeviceId(deviceId)
             .setDeviceName("${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
             .setClientVersion("android-0.5.0")
+            .setDevicePublicKey(com.google.protobuf.ByteString.copyFrom(publicKey))
+            .setDeviceSignature(com.google.protobuf.ByteString.copyFrom(DeviceIdentity.sign(proof)))
             .build()
 
         send(Protocol.LOGIN_RQ, rq.toByteArray())
     }
 
     suspend fun loginWithToken(session: TokenSession, deviceId: String) {
+        val channel = secureChannel ?: throw java.io.IOException("安全通道未建立")
+        val requestId = java.util.UUID.randomUUID().toString()
         val rq = Im.TokenLoginRq.newBuilder()
             .setAccessToken(session.accessToken)
             .setDeviceId(deviceId)
-            .setRequestId(java.util.UUID.randomUUID().toString())
+            .setRequestId(requestId)
+            .setDeviceSignature(com.google.protobuf.ByteString.copyFrom(DeviceIdentity.sign(
+                DeviceProof.message("token-login", channel.sessionId, deviceId,
+                    session.accessToken.toByteArray())
+            )))
             .build()
         send(Protocol.TOKEN_LOGIN_RQ, rq.toByteArray())
     }
 
     suspend fun refreshToken(session: TokenSession, deviceId: String, requestId: String) {
+        val channel = secureChannel ?: throw java.io.IOException("安全通道未建立")
         val rq = Im.RefreshTokenRq.newBuilder()
             .setRefreshToken(session.refreshToken)
             .setDeviceId(deviceId)
             .setRequestId(requestId)
+            .setDeviceSignature(com.google.protobuf.ByteString.copyFrom(DeviceIdentity.sign(
+                DeviceProof.message("token-refresh", channel.sessionId, deviceId,
+                    "${session.refreshToken}\u0000$requestId".toByteArray())
+            )))
             .build()
         send(Protocol.TOKEN_REFRESH_RQ, rq.toByteArray())
     }
 
     suspend fun revokeSession(session: TokenSession, deviceId: String, allDevices: Boolean = false) {
+        val channel = secureChannel ?: throw java.io.IOException("安全通道未建立")
         val rq = Im.LogoutRq.newBuilder()
             .setRefreshToken(session.refreshToken)
             .setDeviceId(deviceId)
             .setLogoutAllDevices(allDevices)
+            .setDeviceSignature(com.google.protobuf.ByteString.copyFrom(DeviceIdentity.sign(
+                DeviceProof.message("logout", channel.sessionId, deviceId,
+                    "${session.refreshToken}\u0000${if (allDevices) 1 else 0}".toByteArray())
+            )))
             .build()
         send(Protocol.LOGOUT_RQ, rq.toByteArray())
     }

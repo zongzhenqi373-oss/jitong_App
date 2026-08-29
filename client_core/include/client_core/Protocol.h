@@ -99,6 +99,7 @@ constexpr int LOGIN_SUCCESS   = 0;
 constexpr int LOGIN_NOTEXIT   = 1;
 constexpr int LOGIN_PASSERROR = 2;
 constexpr int LOGIN_INVALID   = 3;
+constexpr int LOGIN_RATE_LIMITED = 4;
 
 constexpr int STATUS_ONLINE  = 0;
 constexpr int STATUS_OFFLINE = 1;

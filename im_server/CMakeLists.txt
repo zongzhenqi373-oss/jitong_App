@@ -61,6 +61,8 @@ add_library(im_server_lib STATIC
     src/HttpFileServer.cpp
     src/Server.cpp
     src/auth/TokenService.cpp
+    src/auth/LoginRateLimiter.cpp
+    src/auth/DeviceProof.cpp
     src/crypto/AppCrypto.cpp
     src/ai/AiConfig.cpp
     src/ai/AiContextBuilder.cpp
@@ -156,6 +158,14 @@ if(IM_SERVER_BUILD_TESTS)
     add_executable(test_token_service tests/test_token_service.cpp)
     target_link_libraries(test_token_service PRIVATE im_server_lib)
     add_test(NAME token_service COMMAND test_token_service)
+
+    add_executable(test_login_rate_limiter tests/test_login_rate_limiter.cpp)
+    target_link_libraries(test_login_rate_limiter PRIVATE im_server_lib)
+    add_test(NAME login_rate_limiter COMMAND test_login_rate_limiter)
+
+    add_executable(test_device_proof tests/test_device_proof.cpp)
+    target_link_libraries(test_device_proof PRIVATE im_server_lib)
+    add_test(NAME device_proof COMMAND test_device_proof)
 
     add_executable(test_db_write_queue tests/test_db_write_queue.cpp)
     target_link_libraries(test_db_write_queue PRIVATE im_server_lib)

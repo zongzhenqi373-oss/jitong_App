@@ -5,6 +5,7 @@
 #include "Presence.h"
 #include "Session.h"
 #include "auth/TokenService.h"
+#include "auth/DeviceProof.h"
 #include "client_core/Protocol.h"
 #include "handlers/HandlerUtils.h"
 #include "im.pb.h"
@@ -28,6 +29,27 @@ bool validSha256Proof(const std::string& proof)
     return proof.size() == 64 && std::all_of(proof.begin(), proof.end(), [](unsigned char ch) {
         return std::isdigit(ch) != 0 || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
     });
+}
+
+std::string maskedAccount(const std::string& tel)
+{
+    if (tel.size() < 4) return "invalid";
+    return "***" + tel.substr(tel.size() - 4);
+}
+
+deviceproof::Bytes bytesOf(const std::string& value)
+{
+    return deviceproof::Bytes(value.begin(), value.end());
+}
+
+bool verifyDevice(const std::shared_ptr<Session>& session, const std::string& operation,
+                  const std::string& deviceId, const std::string& credential,
+                  const deviceproof::Bytes& publicKey, const std::string& signature,
+                  bool bindPublicKey)
+{
+    const auto proof = deviceproof::message(operation, session->appSessionId(), deviceId,
+                                             credential, bindPublicKey ? publicKey : deviceproof::Bytes{});
+    return deviceproof::verifyP256(publicKey, proof, bytesOf(signature));
 }
 } // namespace
 
@@ -103,11 +125,43 @@ void AuthHandler::onLogin(const std::shared_ptr<Session>& session, const std::st
     LoginRq rq;
     if (!handlers::parsePayload(payload, rq)) return;
 
-    if (!validMainlandMobile(rq.tel()) || !validSha256Proof(rq.pass())) {
+    const std::string& ip = session->peerAddress();
+    auto reject = [&session](int result) {
         LoginRs rs;
-        rs.set_result(LOGIN_INVALID);
+        rs.set_result(result);
         session->deliver(DEF_PROT_LOGIN_RS, rs.SerializeAsString());
+    };
+
+    // IP 已处于封禁窗口时，不继续解析凭证或执行昂贵的 Argon2id。
+    if (!m_loginLimiter.allow(ip, "")) {
+        reject(LOGIN_RATE_LIMITED);
+        log("[认证] 密码登录触发IP限流 ip=", ip);
+        return;
+    }
+
+    if (!validMainlandMobile(rq.tel()) || !validSha256Proof(rq.pass()) ||
+        rq.device_id().empty() || rq.device_id().size() > 128 || session->authenticated() ||
+        rq.device_public_key().empty() || rq.device_signature().empty()) {
+        m_loginLimiter.recordFailure(ip, "");
+        reject(LOGIN_INVALID);
         log("[认证] 拒绝非法登录参数");
+        return;
+    }
+
+    const auto suppliedPublicKey = bytesOf(rq.device_public_key());
+    if (!verifyDevice(session, "password-login", rq.device_id(),
+                      rq.tel() + std::string(1, '\0') + rq.pass(), suppliedPublicKey,
+                      rq.device_signature(), true)) {
+        m_loginLimiter.recordFailure(ip, rq.tel());
+        reject(LOGIN_PASSERROR);
+        log("[认证] 设备签名无效 account=", maskedAccount(rq.tel()));
+        return;
+    }
+
+    if (!m_loginLimiter.allow(ip, rq.tel())) {
+        reject(LOGIN_RATE_LIMITED);
+        log("[认证] 密码登录触发账号/IP限流 ip=", ip,
+            " account=", maskedAccount(rq.tel()));
         return;
     }
 
@@ -115,17 +169,14 @@ void AuthHandler::onLogin(const std::shared_ptr<Session>& session, const std::st
     const int result = m_db.loginUser(
         rq.tel(), rq.pass(), userId);
     if (result != LOGIN_SUCCESS) {
-        LoginRs rs;
-        rs.set_result(result);
-        session->deliver(DEF_PROT_LOGIN_RS, rs.SerializeAsString());
-        log("[认证] 登录失败 tel=", rq.tel(), " 结果=", result);
+        m_loginLimiter.recordFailure(ip, rq.tel());
+        reject(result);
+        log("[认证] 登录失败 account=", maskedAccount(rq.tel()), " 结果=", result);
         return;
     }
-    if (rq.device_id().empty() || rq.device_id().size() > 128 || session->authenticated()) {
-        LoginRs rs;
-        rs.set_result(LOGIN_PASSERROR);
-        session->deliver(DEF_PROT_LOGIN_RS, rs.SerializeAsString());
-        log("[认证] 拒绝非法设备或重复登录 currentUser=", session->userId());
+    if (!m_db.bindDevicePublicKey(userId, rq.device_id(), suppliedPublicKey)) {
+        reject(LOGIN_PASSERROR);
+        log("[认证] device_id已绑定其他设备密钥 id=", userId);
         return;
     }
 
@@ -150,6 +201,7 @@ void AuthHandler::onLogin(const std::shared_ptr<Session>& session, const std::st
     rs.set_refresh_token_expire_at(tokens.refreshExpiresAt);
     rs.set_session_id(tokens.sessionId);
     session->deliver(DEF_PROT_LOGIN_RS, rs.SerializeAsString());
+    m_loginLimiter.recordSuccess(ip, rq.tel());
     activateSession(session, userId);
     log("[认证] 登录成功 id=", userId);
 }
@@ -168,9 +220,13 @@ void AuthHandler::onTokenLogin(const std::shared_ptr<Session>& session, const st
     int userId = 0;
     std::string sessionId;
     std::int64_t expiresAt = 0;
-    const bool ok = rq.device_id().size() <= 128 &&
+    bool ok = rq.device_id().size() <= 128 && !rq.device_signature().empty() &&
         m_tokens.validateAccess(rq.access_token(), "", rq.device_id(),
                                 userId, sessionId, expiresAt);
+    deviceproof::Bytes devicePublicKey;
+    ok = ok && m_db.getDevicePublicKey(userId, rq.device_id(), devicePublicKey) &&
+        verifyDevice(session, "token-login", rq.device_id(), rq.access_token(),
+                     devicePublicKey, rq.device_signature(), false);
     TokenLoginRs rs;
     rs.set_result(ok ? LOGIN_SUCCESS : LOGIN_PASSERROR);
     if (ok) {
@@ -188,7 +244,17 @@ void AuthHandler::onTokenRefresh(const std::shared_ptr<Session>& session, const 
     if (!handlers::parsePayload(payload, rq)) return;
     TokenPair tokens;
     int revokedUserId = 0;
-    const bool ok = rq.device_id().size() <= 128 && rq.request_id().size() <= 128 &&
+    Database::AuthSessionRecord refreshRecord;
+    deviceproof::Bytes refreshPublicKey;
+    const bool deviceProofOk = rq.device_id().size() <= 128 && rq.request_id().size() <= 128 &&
+        !rq.device_signature().empty() &&
+        m_db.findByRefreshHash(TokenService::tokenHash(rq.refresh_token()), refreshRecord) &&
+        !refreshRecord.revoked && refreshRecord.deviceId == rq.device_id() &&
+        m_db.getDevicePublicKey(refreshRecord.userId, rq.device_id(), refreshPublicKey) &&
+        verifyDevice(session, "token-refresh", rq.device_id(),
+                     rq.refresh_token() + std::string(1, '\0') + rq.request_id(),
+                     refreshPublicKey, rq.device_signature(), false);
+    const bool ok = deviceProofOk &&
         m_tokens.rotateRefresh(rq.refresh_token(), rq.device_id(), rq.request_id(),
                                tokens, revokedUserId);
     if (revokedUserId > 0) {
@@ -223,7 +289,13 @@ void AuthHandler::onLogout(const std::shared_ptr<Session>& session, const std::s
     const bool tokenValid = !rq.refresh_token().empty() &&
         m_db.findByRefreshHash(TokenService::tokenHash(rq.refresh_token()), record) &&
         !record.revoked && record.deviceId == rq.device_id();
-    const bool ownsSession = tokenValid && session->authenticated() &&
+    deviceproof::Bytes logoutPublicKey;
+    const bool proofValid = tokenValid &&
+        m_db.getDevicePublicKey(record.userId, rq.device_id(), logoutPublicKey) &&
+        verifyDevice(session, "logout", rq.device_id(),
+            rq.refresh_token() + std::string(1, '\0') + (rq.logout_all_devices() ? "1" : "0"),
+            logoutPublicKey, rq.device_signature(), false);
+    const bool ownsSession = proofValid && session->authenticated() &&
         session->userId() == record.userId && session->deviceId() == record.deviceId &&
         session->authSessionId() == record.sessionId;
     if (ownsSession) {

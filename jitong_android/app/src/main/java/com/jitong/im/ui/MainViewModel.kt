@@ -689,6 +689,10 @@ class MainViewModel : ViewModel() {
                     }
                     Protocol.LOGIN_NOTEXIT -> _loginTip.value = "登录失败：用户不存在"
                     Protocol.LOGIN_INVALID -> _loginTip.value = "登录失败：手机号或密码格式不正确"
+                    Protocol.LOGIN_RATE_LIMITED -> {
+                        _loginTip.value = "登录尝试次数过多，请稍后再试"
+                        _toast.emit("登录过于频繁，请稍后再试")
+                    }
                     else -> _loginTip.value = "登录失败：密码错误"
                 }
 
