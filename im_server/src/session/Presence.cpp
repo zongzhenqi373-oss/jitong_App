@@ -1,5 +1,5 @@
-#include "Presence.h"
-#include "Session.h"
+#include "session/Presence.h"
+#include "session/Session.h"
 
 namespace imsrv {
 

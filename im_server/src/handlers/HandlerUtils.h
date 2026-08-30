@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Database.h"
-#include "Session.h"
+#include "db/Database.h"
+#include "session/Session.h"
 #include "client_core/Protocol.h"
 #include "im.pb.h"
 

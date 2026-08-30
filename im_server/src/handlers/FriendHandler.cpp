@@ -2,10 +2,10 @@
 
 #include <string>
 
-#include "Database.h"
-#include "Log.h"
-#include "Presence.h"
-#include "Session.h"
+#include "db/Database.h"
+#include "common/Log.h"
+#include "session/Presence.h"
+#include "session/Session.h"
 #include "client_core/Protocol.h"
 #include "handlers/HandlerUtils.h"
 #include "im.pb.h"

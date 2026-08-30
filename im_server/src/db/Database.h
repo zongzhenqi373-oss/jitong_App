@@ -13,7 +13,7 @@
 #include <memory>
 #include <cstdint>
 
-#include "DbWriteQueue.h"
+#include "db/DbWriteQueue.h"
 
 struct sqlite3;
 

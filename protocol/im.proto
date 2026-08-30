@@ -185,7 +185,7 @@ message FriendOffline {
 
 // ---------------- 文件/图片传输（M7 → HTTP 化） ----------------
 // 分片协议（FileOfferRq/FileChunkRq/FileCompleteRq/FileProgressRs/FileDownloadRq，
-// 原协议号 1017-1022）已废弃、整体迁移到独立的 HTTPS 文件服务（im_server/src/HttpFileServer）：
+// 原协议号 1017-1022）已废弃、整体迁移到独立的 HTTPS 文件服务（im_server/src/media/HttpFileServer）：
 // 客户端先 POST /api/v1/upload 拿到 file_id，再发一条 ChatInfoRq(type=IMAGE/FILE, file_id=...)
 // 作为"已就绪"通知（复用现有的在线转发/离线补发/漫游链路），下载走 GET /api/v1/download/{file_id}
 // （原生支持 Range 续传）。协议号 1017-1022 不再回收复用，见 client_core/include/client_core/Protocol.h。

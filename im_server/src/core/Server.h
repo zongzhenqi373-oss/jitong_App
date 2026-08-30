@@ -21,8 +21,8 @@
 #include <vector>
 #include <asio/ssl.hpp>
 
-#include "Database.h"
-#include "Presence.h"
+#include "db/Database.h"
+#include "session/Presence.h"
 #include "auth/TokenService.h"
 #include "crypto/AppCrypto.h"
 

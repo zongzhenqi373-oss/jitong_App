@@ -14,7 +14,7 @@
 #include <thread>
 #include <vector>
 
-#include "Server.h"
+#include "core/Server.h"
 #include "client_core/ClientCore.h"
 #include "client_core/Protocol.h"
 #include "sha256.h"

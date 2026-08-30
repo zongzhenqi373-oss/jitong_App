@@ -3,7 +3,7 @@
 //   默认 port=24563, dbPath=data/im.db（上传目录 uploads/），httpPort=port+1（文件服务）
 #include <cstdlib>
 #include <iostream>
-#include "Server.h"
+#include "core/Server.h"
 
 int main(int argc, char* argv[])
 {

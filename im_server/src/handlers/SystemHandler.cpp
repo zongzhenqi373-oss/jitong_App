@@ -1,7 +1,7 @@
 #include "handlers/SystemHandler.h"
 
-#include "Presence.h"
-#include "Session.h"
+#include "session/Presence.h"
+#include "session/Session.h"
 #include "handlers/HandlerUtils.h"
 #include "im.pb.h"
 

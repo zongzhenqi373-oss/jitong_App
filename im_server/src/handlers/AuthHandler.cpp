@@ -1,9 +1,9 @@
 #include "handlers/AuthHandler.h"
 
-#include "Database.h"
-#include "Log.h"
-#include "Presence.h"
-#include "Session.h"
+#include "db/Database.h"
+#include "common/Log.h"
+#include "session/Presence.h"
+#include "session/Session.h"
 #include "auth/TokenService.h"
 #include "auth/DeviceProof.h"
 #include "client_core/Protocol.h"

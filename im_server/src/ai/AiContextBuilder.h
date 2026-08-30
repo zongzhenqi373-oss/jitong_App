@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Database.h"
+#include "db/Database.h"
 #include "ai/AiTypes.h"
 
 #include <string>

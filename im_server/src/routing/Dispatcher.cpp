@@ -1,7 +1,7 @@
-#include "Dispatcher.h"
+#include "routing/Dispatcher.h"
 
-#include "Log.h"
-#include "Session.h"
+#include "common/Log.h"
+#include "session/Session.h"
 #include "client_core/Protocol.h"
 #include "handlers/AuthHandler.h"
 #include "handlers/AiHandler.h"

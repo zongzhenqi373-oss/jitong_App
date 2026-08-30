@@ -1,7 +1,7 @@
 #include "routing/ProtocolRouter.h"
 
-#include "Log.h"
-#include "Session.h"
+#include "common/Log.h"
+#include "session/Session.h"
 
 #include <stdexcept>
 #include <utility>

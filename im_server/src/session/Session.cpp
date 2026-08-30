@@ -1,6 +1,6 @@
-#include "Session.h"
-#include "Server.h"
-#include "Log.h"
+#include "session/Session.h"
+#include "core/Server.h"
+#include "common/Log.h"
 #include "client_core/Protocol.h"
 #include "im.pb.h"
 

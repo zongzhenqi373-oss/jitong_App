@@ -1,8 +1,8 @@
 #include "handlers/AiHandler.h"
 
-#include "Database.h"
-#include "Log.h"
-#include "Session.h"
+#include "db/Database.h"
+#include "common/Log.h"
+#include "session/Session.h"
 #include "ai/AnthropicModelClient.h"
 #include "ai/AiContextBuilder.h"
 #include "ai/IModelClient.h"

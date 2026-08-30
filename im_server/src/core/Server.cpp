@@ -1,8 +1,8 @@
-#include "Server.h"
-#include "Session.h"
-#include "Dispatcher.h"
-#include "HttpFileServer.h"
-#include "Log.h"
+#include "core/Server.h"
+#include "session/Session.h"
+#include "routing/Dispatcher.h"
+#include "media/HttpFileServer.h"
+#include "common/Log.h"
 #include "client_core/Protocol.h"
 #include "im.pb.h"
 

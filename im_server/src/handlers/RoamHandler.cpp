@@ -1,8 +1,8 @@
 #include "handlers/RoamHandler.h"
 
-#include "Database.h"
-#include "Log.h"
-#include "Session.h"
+#include "db/Database.h"
+#include "common/Log.h"
+#include "session/Session.h"
 #include "handlers/HandlerUtils.h"
 #include "im.pb.h"
 

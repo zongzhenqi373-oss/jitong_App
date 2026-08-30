@@ -46,11 +46,11 @@ set(HTTPLIB_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../client_core/third_party/httpl
 
 # ---------------- im_server_lib（业务库，供可执行文件与测试共用） ----------------
 add_library(im_server_lib STATIC
-    src/Database.cpp
-    src/DbWriteQueue.cpp
-    src/Presence.cpp
-    src/Session.cpp
-    src/Dispatcher.cpp
+    src/db/Database.cpp
+    src/db/DbWriteQueue.cpp
+    src/session/Presence.cpp
+    src/session/Session.cpp
+    src/routing/Dispatcher.cpp
     src/routing/ProtocolRouter.cpp
     src/handlers/AuthHandler.cpp
     src/handlers/AiHandler.cpp
@@ -58,8 +58,8 @@ add_library(im_server_lib STATIC
     src/handlers/FriendHandler.cpp
     src/handlers/RoamHandler.cpp
     src/handlers/SystemHandler.cpp
-    src/HttpFileServer.cpp
-    src/Server.cpp
+    src/media/HttpFileServer.cpp
+    src/core/Server.cpp
     src/auth/TokenService.cpp
     src/auth/LoginRateLimiter.cpp
     src/auth/DeviceProof.cpp
