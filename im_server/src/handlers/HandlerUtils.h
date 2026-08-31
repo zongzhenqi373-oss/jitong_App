@@ -47,6 +47,16 @@ inline bool fillChatInfo(im::proto::ChatInfoRq& out, const StoredMessage& messag
         out.set_file_size(message.fileSize);
         out.set_content_type(message.contentType);
         out.set_sha256(message.sha256);
+        out.set_thumbnail_file_id(message.thumbnailFileId);
+        out.set_thumbnail_size(message.thumbnailSize);
+        out.set_thumbnail_sha256(message.thumbnailSha256);
+        out.set_thumbnail_width(message.thumbnailW);
+        out.set_thumbnail_height(message.thumbnailH);
+        out.set_large_thumbnail_file_id(message.largeThumbnailFileId);
+        out.set_large_thumbnail_size(message.largeThumbnailSize);
+        out.set_large_thumbnail_sha256(message.largeThumbnailSha256);
+        out.set_large_thumbnail_width(message.largeThumbnailW);
+        out.set_large_thumbnail_height(message.largeThumbnailH);
     } else if (message.type == 2) {
         out.set_type(im::proto::FILE);
         out.set_file_id(message.fileId);

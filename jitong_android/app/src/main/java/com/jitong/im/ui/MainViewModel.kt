@@ -50,6 +50,18 @@ data class ChatMessage(
     val fileSize: Long = 0,
     val contentType: String = "",
     val sha256: String = "",
+    val thumbnailFileId: String = "",
+    val thumbnailPath: String? = null,
+    val thumbnailSize: Long = 0,
+    val thumbnailSha256: String = "",
+    val thumbnailW: Int = 0,
+    val thumbnailH: Int = 0,
+    val largeThumbnailFileId: String = "",
+    val largeThumbnailPath: String? = null,
+    val largeThumbnailSize: Long = 0,
+    val largeThumbnailSha256: String = "",
+    val largeThumbnailW: Int = 0,
+    val largeThumbnailH: Int = 0,
     val localPath: String? = null,
     val transferred: Int = 0,
     val status: Status = Status.RECEIVED,
@@ -227,17 +239,22 @@ class MainViewModel : ViewModel() {
     private fun validateCredentials(tel: String, pass: String): String? {
         if (!tel.matches(Regex("^1[3-9]\\d{9}$"))) return "请输入正确的 11 位手机号"
         // 兼容项目现有的 6 位演示账号；新生产系统建议提升到至少 8 位。
-        if (pass.length !in 6..64) return "密码长度应为 6～64 个字符"
+        if (pass.length !in 6..32) return "密码长度应为 6～32 个字符"
         if (pass.isBlank()) return "密码不能全部为空格"
         return null
     }
 
     // ---------------- 导航 ----------------
 
-    fun openChat(friend: Friend) {
+    fun openChat(friend: Friend) = openChatInternal(friend, null)
+
+    /** 从全局搜索结果打开聊天并定位到指定消息。 */
+    fun openChatAt(friend: Friend, msgId: String) = openChatInternal(friend, msgId)
+
+    private fun openChatInternal(friend: Friend, jumpToMsgId: String?) {
         clearAiReply(cancelRemote = true)
         clearConversationSearch()
-        _chatJumpTarget.value = null
+        _chatJumpTarget.value = jumpToMsgId
         _chatPeer.value = friend
         _screen.value = Screen.Chat
         // 进入会话清零未读（库 + 内存）
@@ -423,7 +440,8 @@ class MainViewModel : ViewModel() {
     }
 
     /** 发送图片（压缩已由调用方完成），本地即时上屏 + 等待回执 */
-    fun sendImage(bytes: ByteArray, w: Int, h: Int) {
+    fun sendImage(bytes: ByteArray, w: Int, h: Int, thumbnail: ByteArray, thumbW: Int, thumbH: Int,
+                  largeThumbnail: ByteArray, largeThumbW: Int, largeThumbH: Int) {
         val peer = _chatPeer.value ?: return
         if (bytes.isEmpty()) return
         val msgId = UUID.randomUUID().toString()
@@ -431,16 +449,28 @@ class MainViewModel : ViewModel() {
         val local = java.io.File(ctx.filesDir, "img/outgoing/$msgId.jpg").also {
             it.parentFile?.mkdirs(); it.writeBytes(bytes)
         }
+        val thumb = java.io.File(ctx.filesDir, "img/outgoing/${msgId}_thumb.jpg").also {
+            it.writeBytes(thumbnail)
+        }
+        val largeThumb = java.io.File(ctx.filesDir, "img/outgoing/${msgId}_large.jpg").also {
+            it.writeBytes(largeThumbnail)
+        }
         append(
             ChatMessage(
                 msgId, peer.id, fromMe = true, kind = MsgKind.IMAGE,
                 imageBytes = bytes, imgW = w, imgH = h, localPath = local.absolutePath,
                 fileName = "$msgId.jpg", fileSize = local.length(), contentType = "image/jpeg",
+                thumbnailPath = thumb.absolutePath, thumbnailSize = thumb.length(),
+                thumbnailW = thumbW, thumbnailH = thumbH,
+                largeThumbnailPath = largeThumb.absolutePath,
+                largeThumbnailSize = largeThumb.length(),
+                largeThumbnailW = largeThumbW, largeThumbnailH = largeThumbH,
                 status = ChatMessage.Status.SENDING,
             ),
             incrUnread = false,
         )
-        uploadMedia(msgId, Upload(local, peer.id, "$msgId.jpg", local.length(), true, w, h))
+        uploadMedia(msgId, Upload(local, peer.id, "$msgId.jpg", local.length(), true, w, h,
+            thumb, thumbW, thumbH, largeThumb, largeThumbW, largeThumbH))
     }
 
     /** 聊天记录搜索（FTS 前缀 + LIKE 子串） */
@@ -488,6 +518,9 @@ class MainViewModel : ViewModel() {
     private data class Upload(
         val file: java.io.File, val peerId: Int, val name: String, val size: Long,
         val isImage: Boolean = false, val width: Int = 0, val height: Int = 0,
+        val thumbnail: java.io.File? = null, val thumbnailW: Int = 0, val thumbnailH: Int = 0,
+        val largeThumbnail: java.io.File? = null,
+        val largeThumbnailW: Int = 0, val largeThumbnailH: Int = 0,
     )
     private val uploads = java.util.concurrent.ConcurrentHashMap<String, Upload>()
 
@@ -569,6 +602,12 @@ class MainViewModel : ViewModel() {
             runCatching {
                 val mime = if (up.isImage) "image/jpeg" else
                     java.net.URLConnection.guessContentTypeFromName(up.name) ?: "application/octet-stream"
+                val thumbnailResult = up.thumbnail?.let {
+                    mediaClient.upload(it, up.peerId, "${msgId}_thumb.jpg", "image/jpeg")
+                }
+                val largeThumbnailResult = up.largeThumbnail?.let {
+                    mediaClient.upload(it, up.peerId, "${msgId}_large.jpg", "image/jpeg")
+                }
                 val result = mediaClient.upload(up.file, up.peerId, up.name, mime) { sent, total ->
                     val percent = if (total > 0) (sent * 100 / total).toInt() else 0
                     viewModelScope.launch { updateFileProgress(up.peerId, msgId, percent) }
@@ -576,8 +615,23 @@ class MainViewModel : ViewModel() {
                 client.sendMediaCard(
                     up.peerId, result.fileId, up.name, result.size, result.contentType,
                     result.sha256, up.isImage, up.width, up.height, msgId,
+                    thumbnailResult?.fileId.orEmpty(), thumbnailResult?.size ?: 0,
+                    thumbnailResult?.sha256.orEmpty(), up.thumbnailW, up.thumbnailH,
+                    largeThumbnailResult?.fileId.orEmpty(), largeThumbnailResult?.size ?: 0,
+                    largeThumbnailResult?.sha256.orEmpty(),
+                    up.largeThumbnailW, up.largeThumbnailH,
                 )
                 updateMediaMetadata(up.peerId, msgId, result.fileId, result.contentType, result.sha256)
+                if (thumbnailResult != null) {
+                    store?.updateThumbnail(client.myId, msgId, thumbnailResult.fileId,
+                        up.thumbnail?.absolutePath, thumbnailResult.size, thumbnailResult.sha256,
+                        up.thumbnailW, up.thumbnailH)
+                }
+                if (largeThumbnailResult != null) {
+                    store?.updateLargeThumbnail(client.myId, msgId, largeThumbnailResult.fileId,
+                        up.largeThumbnail?.absolutePath, largeThumbnailResult.size,
+                        largeThumbnailResult.sha256, up.largeThumbnailW, up.largeThumbnailH)
+                }
             }.onFailure {
                 uploads.remove(msgId)
                 updateFileStatus(up.peerId, msgId, ChatMessage.Status.FAILED)
@@ -602,6 +656,49 @@ class MainViewModel : ViewModel() {
     // ---------------- 文件接收（接收方状态机 + 断点续传） ----------------
 
     private val downloads = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /** 图片消息优先只拉 320×240 缩略图，避免会话列表/聊天首屏下载原图。 */
+    private fun downloadThumbnail(msg: ChatMessage) {
+        val ctx = appContext ?: return
+        val fileId = msg.thumbnailFileId
+        if (fileId.isBlank() || !downloads.add(fileId)) return
+        val destination = java.io.File(ctx.filesDir, "img/thumb/${msg.msgId}.jpg")
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                mediaClient.download(fileId, destination, msg.thumbnailSha256)
+                val current = _messages.value[msg.peerId].orEmpty().map {
+                    if (it.msgId == msg.msgId) it.copy(thumbnailPath = destination.absolutePath) else it
+                }
+                _messages.value = _messages.value + (msg.peerId to current)
+                store?.updateThumbnail(client.myId, msg.msgId, fileId, destination.absolutePath,
+                    msg.thumbnailSize, msg.thumbnailSha256, msg.thumbnailW, msg.thumbnailH)
+            }.onFailure { notify("缩略图下载失败：${it.message ?: it.javaClass.simpleName}") }
+            downloads.remove(fileId)
+        }
+    }
+
+    /** 仅供聊天可视区调用：幂等预取大缩略图，不会下载原图。 */
+    fun prefetchLargeThumbnail(msg: ChatMessage) {
+        val ctx = appContext ?: return
+        if (msg.kind != MsgKind.IMAGE || msg.largeThumbnailFileId.isBlank() ||
+            msg.largeThumbnailPath?.let { java.io.File(it).isFile } == true) return
+        val fileId = msg.largeThumbnailFileId
+        if (!downloads.add(fileId)) return
+        val destination = java.io.File(ctx.filesDir, "img/large/${msg.msgId}.jpg")
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                mediaClient.download(fileId, destination, msg.largeThumbnailSha256)
+                val current = _messages.value[msg.peerId].orEmpty().map {
+                    if (it.msgId == msg.msgId) it.copy(largeThumbnailPath = destination.absolutePath) else it
+                }
+                _messages.value = _messages.value + (msg.peerId to current)
+                store?.updateLargeThumbnail(client.myId, msg.msgId, fileId,
+                    destination.absolutePath, msg.largeThumbnailSize, msg.largeThumbnailSha256,
+                    msg.largeThumbnailW, msg.largeThumbnailH)
+            }
+            downloads.remove(fileId)
+        }
+    }
 
     /** 用户点击下载：从本地已有的 .part 大小推算续传起点，向服务端请求剩余分片 */
     fun downloadFile(msg: ChatMessage) {
@@ -918,6 +1015,16 @@ class MainViewModel : ViewModel() {
                                 fileSize = item.fileSize,
                                 contentType = item.contentType,
                                 sha256 = item.sha256,
+                                thumbnailFileId = item.thumbnailFileId,
+                                thumbnailSize = item.thumbnailSize,
+                                thumbnailSha256 = item.thumbnailSha256,
+                                thumbnailW = item.thumbnailW,
+                                thumbnailH = item.thumbnailH,
+                                largeThumbnailFileId = item.largeThumbnailFileId,
+                                largeThumbnailSize = item.largeThumbnailSize,
+                                largeThumbnailSha256 = item.largeThumbnailSha256,
+                                largeThumbnailW = item.largeThumbnailW,
+                                largeThumbnailH = item.largeThumbnailH,
                                 status = if (fromMe) ChatMessage.Status.DELIVERED else ChatMessage.Status.RECEIVED,
                             )
                         append(
@@ -932,7 +1039,10 @@ class MainViewModel : ViewModel() {
                                 .firstOrNull { it.msgId == item.msgId } ?: historyMessage
                             val localAvailable = effective.imageBytes != null ||
                                 effective.localPath?.let { java.io.File(it).isFile } == true
-                            if (!localAvailable) downloadFile(effective)
+                            if (!localAvailable) {
+                                if (effective.thumbnailFileId.isNotBlank()) downloadThumbnail(effective)
+                                else downloadFile(effective)
+                            }
                         }
                     }
                     // 更新分页游标：minSeq 为本批最小 seq，供下次上拉；hasMore 决定是否继续
@@ -984,10 +1094,20 @@ class MainViewModel : ViewModel() {
                         kind = if (e.isImage) MsgKind.IMAGE else MsgKind.FILE,
                         fileId = e.fileId, fileName = e.name, fileSize = e.size, ts = e.ts, seq = e.seq,
                         contentType = e.contentType, sha256 = e.sha256, imgW = e.width, imgH = e.height,
+                        thumbnailFileId = e.thumbnailFileId, thumbnailSize = e.thumbnailSize,
+                        thumbnailSha256 = e.thumbnailSha256, thumbnailW = e.thumbnailW,
+                        thumbnailH = e.thumbnailH,
+                        largeThumbnailFileId = e.largeThumbnailFileId,
+                        largeThumbnailSize = e.largeThumbnailSize,
+                        largeThumbnailSha256 = e.largeThumbnailSha256,
+                        largeThumbnailW = e.largeThumbnailW,
+                        largeThumbnailH = e.largeThumbnailH,
                         status = ChatMessage.Status.RECEIVED)
                     append(media, incrUnread = !inChat)
                     // 图片需要即时展示；普通文件仍由用户点击后下载。
-                    if (e.isImage) downloadFile(media)
+                    if (e.isImage) {
+                        if (e.thumbnailFileId.isNotBlank()) downloadThumbnail(media) else downloadFile(media)
+                    }
                 }
             }
         }

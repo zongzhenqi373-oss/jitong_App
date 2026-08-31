@@ -8,12 +8,14 @@ import okhttp3.CertificatePinner
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okio.BufferedSink
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.util.concurrent.TimeUnit
 
 data class MediaUploadResult(
@@ -55,6 +57,9 @@ class HttpMediaClient(
         onProgress: (Long, Long) -> Unit = { _, _ -> },
     ): MediaUploadResult = withContext(Dispatchers.IO) {
         require(file.isFile && file.length() in 1..Protocol.FILE_MAX_SIZE) { "文件大小不合法" }
+        // 秒传预检：先报不可逆摘要和大小；命中后仍必须提交随机分片，证明客户端真持有文件。
+        val sha256 = FileInputStream(file).use(::sha256HexOfStream)
+        tryInstantUpload(file, receiverId, sha256)?.let { return@withContext it }
         val body = object : RequestBody() {
             override fun contentType() = contentType.toMediaTypeOrNull()
             override fun contentLength() = file.length()
@@ -86,6 +91,39 @@ class HttpMediaClient(
                 json.getString("file_id"), json.getString("sha256"),
                 json.getLong("size"), json.getString("content_type"),
             )
+        }
+    }
+
+    private fun tryInstantUpload(file: File, receiverId: Int, sha256: String): MediaUploadResult? {
+        val preflight = auth(Request.Builder())
+            .url("https://$host:$port/api/v1/upload/preflight")
+            .header("X-Receiver-Id", receiverId.toString())
+            .header("X-File-Size", file.length().toString())
+            .header("X-File-Sha256", sha256)
+            .post(ByteArray(0).toRequestBody(null))
+            .build()
+        val challenge = client.newCall(preflight).execute().use { response ->
+            checkSuccess(response)
+            JSONObject(response.body?.string().orEmpty())
+        }
+        if (!challenge.optBoolean("hit", false)) return null
+        val challengeId = challenge.getString("challenge_id")
+        val offset = challenge.getLong("offset")
+        val length = challenge.getInt("length")
+        val proof = ByteArray(length)
+        RandomAccessFile(file, "r").use { raf ->
+            raf.seek(offset)
+            raf.readFully(proof)
+        }
+        val request = auth(Request.Builder())
+            .url("https://$host:$port/api/v1/upload/proof/$challengeId")
+            .post(proof.toRequestBody("application/octet-stream".toMediaTypeOrNull()))
+            .build()
+        return client.newCall(request).execute().use { response ->
+            checkSuccess(response)
+            val json = JSONObject(response.body?.string().orEmpty())
+            MediaUploadResult(json.getString("file_id"), json.getString("sha256"),
+                json.getLong("size"), json.getString("content_type"))
         }
     }
 

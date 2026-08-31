@@ -6,6 +6,7 @@
 #include <argon2.h>
 #include <openssl/rand.h>
 #include <ctime>
+#include <filesystem>
 #include <random>
 #include <stdexcept>
 
@@ -225,7 +226,19 @@ bool Database::open(const std::string& dbPath, int poolSize)
         "  file_id TEXT,"
         "  file_size INTEGER NOT NULL DEFAULT 0,"
         "  content_type TEXT NOT NULL DEFAULT '',"
-        "  sha256 TEXT NOT NULL DEFAULT ''"
+        "  sha256 TEXT NOT NULL DEFAULT '',"
+        "  thumbnail_file_id TEXT NOT NULL DEFAULT '',"
+        "  thumbnail_path TEXT NOT NULL DEFAULT '',"
+        "  thumbnail_size INTEGER NOT NULL DEFAULT 0,"
+        "  thumbnail_sha256 TEXT NOT NULL DEFAULT '',"
+        "  thumbnail_w INTEGER NOT NULL DEFAULT 0,"
+        "  thumbnail_h INTEGER NOT NULL DEFAULT 0"
+        ", large_thumbnail_file_id TEXT NOT NULL DEFAULT ''"
+        ", large_thumbnail_path TEXT NOT NULL DEFAULT ''"
+        ", large_thumbnail_size INTEGER NOT NULL DEFAULT 0"
+        ", large_thumbnail_sha256 TEXT NOT NULL DEFAULT ''"
+        ", large_thumbnail_w INTEGER NOT NULL DEFAULT 0"
+        ", large_thumbnail_h INTEGER NOT NULL DEFAULT 0"
         ");"
         // 漫游索引（roamMessages）
         "CREATE INDEX IF NOT EXISTS idx_msg_conv_ts ON messages(conversation_id, ts);"
@@ -280,6 +293,24 @@ bool Database::open(const std::string& dbPath, int poolSize)
     execOn(c.db, "ALTER TABLE t_user ADD COLUMN password_algo TEXT NOT NULL DEFAULT 'legacy_sha256';");
     execOn(c.db, "ALTER TABLE messages ADD COLUMN content_type TEXT NOT NULL DEFAULT '';");
     execOn(c.db, "ALTER TABLE messages ADD COLUMN sha256 TEXT NOT NULL DEFAULT '';");
+    execOn(c.db, "ALTER TABLE messages ADD COLUMN thumbnail_file_id TEXT NOT NULL DEFAULT '';");
+    execOn(c.db, "ALTER TABLE messages ADD COLUMN thumbnail_path TEXT NOT NULL DEFAULT '';");
+    execOn(c.db, "ALTER TABLE messages ADD COLUMN thumbnail_size INTEGER NOT NULL DEFAULT 0;");
+    execOn(c.db, "ALTER TABLE messages ADD COLUMN thumbnail_sha256 TEXT NOT NULL DEFAULT '';");
+    execOn(c.db, "ALTER TABLE messages ADD COLUMN thumbnail_w INTEGER NOT NULL DEFAULT 0;");
+    execOn(c.db, "ALTER TABLE messages ADD COLUMN thumbnail_h INTEGER NOT NULL DEFAULT 0;");
+    execOn(c.db, "ALTER TABLE messages ADD COLUMN large_thumbnail_file_id TEXT NOT NULL DEFAULT '';");
+    execOn(c.db, "ALTER TABLE messages ADD COLUMN large_thumbnail_path TEXT NOT NULL DEFAULT '';");
+    execOn(c.db, "ALTER TABLE messages ADD COLUMN large_thumbnail_size INTEGER NOT NULL DEFAULT 0;");
+    execOn(c.db, "ALTER TABLE messages ADD COLUMN large_thumbnail_sha256 TEXT NOT NULL DEFAULT '';");
+    execOn(c.db, "ALTER TABLE messages ADD COLUMN large_thumbnail_w INTEGER NOT NULL DEFAULT 0;");
+    execOn(c.db, "ALTER TABLE messages ADD COLUMN large_thumbnail_h INTEGER NOT NULL DEFAULT 0;");
+    // 旧版图片只有 media_path、没有 file_id。客户端历史兼容逻辑会用 msg_id 作为下载 ID，
+    // 因此在升级时一次性回填，使旧图片继续经过统一的参与者鉴权下载链路。
+    execOn(c.db,
+        "UPDATE messages SET file_id=msg_id "
+        "WHERE type IN (1,2) AND (file_id IS NULL OR file_id='') "
+        "AND media_path IS NOT NULL AND media_path<>'';");
     // 清理旧版重复/不匹配索引。离线消息跨会话按服务端时间+行号稳定排序，
     // 因此索引也按 receiver/is_delivered/ts/id 排列。
     execOn(c.db, "DROP INDEX IF EXISTS idx_msg_conv_seq;");
@@ -862,8 +893,8 @@ bool Database::saveMessage(StoredMessage& m, bool delivered)
         // msg_id UNIQUE 保证幂等；会话 seq 唯一索引是并发顺序的数据库级最后防线。
         if(sqlite3_prepare_v2(db,
             "INSERT INTO messages"
-            "(msg_id, conversation_id, sender_id, receiver_id, type, content, media_path, img_w, img_h, ts, is_delivered, is_read, seq, file_id, file_size, content_type, sha256)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?);",
+            "(msg_id, conversation_id, sender_id, receiver_id, type, content, media_path, img_w, img_h, ts, is_delivered, is_read, seq, file_id, file_size, content_type, sha256, thumbnail_file_id, thumbnail_path, thumbnail_size, thumbnail_sha256, thumbnail_w, thumbnail_h, large_thumbnail_file_id, large_thumbnail_path, large_thumbnail_size, large_thumbnail_sha256, large_thumbnail_w, large_thumbnail_h)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);",
             -1, &st, nullptr) != SQLITE_OK){
                 rollback();
                 return false;
@@ -884,6 +915,18 @@ bool Database::saveMessage(StoredMessage& m, bool delivered)
         sqlite3_bind_int64(st, 14, m.fileSize);
         sqlite3_bind_text(st, 15, m.contentType.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(st, 16, m.sha256.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 17, m.thumbnailFileId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 18, m.thumbnailPath.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 19, m.thumbnailSize);
+        sqlite3_bind_text(st, 20, m.thumbnailSha256.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(st, 21, m.thumbnailW);
+        sqlite3_bind_int(st, 22, m.thumbnailH);
+        sqlite3_bind_text(st, 23, m.largeThumbnailFileId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 24, m.largeThumbnailPath.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 25, m.largeThumbnailSize);
+        sqlite3_bind_text(st, 26, m.largeThumbnailSha256.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(st, 27, m.largeThumbnailW);
+        sqlite3_bind_int(st, 28, m.largeThumbnailH);
         const bool ok = sqlite3_step(st) == SQLITE_DONE;
         sqlite3_finalize(st);
         if (!ok) { rollback(); return false; }
@@ -901,7 +944,7 @@ std::vector<StoredMessage> Database::pullUndelivered(int receiverId)
 
     sqlite3_stmt* st = nullptr;
     if(sqlite3_prepare_v2(c.db,
-        "SELECT msg_id, sender_id, receiver_id, type, content, media_path, img_w, img_h, ts, seq, file_id, file_size, content_type, sha256 "
+        "SELECT msg_id, sender_id, receiver_id, type, content, media_path, img_w, img_h, ts, seq, file_id, file_size, content_type, sha256, thumbnail_file_id, thumbnail_path, thumbnail_size, thumbnail_sha256, thumbnail_w, thumbnail_h, large_thumbnail_file_id, large_thumbnail_path, large_thumbnail_size, large_thumbnail_sha256, large_thumbnail_w, large_thumbnail_h "
         "FROM messages WHERE receiver_id=? AND is_delivered=0 ORDER BY ts ASC, id ASC;",
         -1, &st, nullptr) != SQLITE_OK){
         return out;
@@ -929,6 +972,24 @@ std::vector<StoredMessage> Database::pullUndelivered(int receiverId)
         const unsigned char* sha256 = sqlite3_column_text(st, 13);
         m.contentType = contentType ? reinterpret_cast<const char*>(contentType) : "";
         m.sha256 = sha256 ? reinterpret_cast<const char*>(sha256) : "";
+        const unsigned char* tfid = sqlite3_column_text(st, 14);
+        const unsigned char* tpath = sqlite3_column_text(st, 15);
+        const unsigned char* tsha = sqlite3_column_text(st, 17);
+        m.thumbnailFileId = tfid ? reinterpret_cast<const char*>(tfid) : "";
+        m.thumbnailPath = tpath ? reinterpret_cast<const char*>(tpath) : "";
+        m.thumbnailSize = sqlite3_column_int64(st, 16);
+        m.thumbnailSha256 = tsha ? reinterpret_cast<const char*>(tsha) : "";
+        m.thumbnailW = sqlite3_column_int(st, 18);
+        m.thumbnailH = sqlite3_column_int(st, 19);
+        const unsigned char* lfid = sqlite3_column_text(st, 20);
+        const unsigned char* lpath = sqlite3_column_text(st, 21);
+        const unsigned char* lsha = sqlite3_column_text(st, 23);
+        m.largeThumbnailFileId = lfid ? reinterpret_cast<const char*>(lfid) : "";
+        m.largeThumbnailPath = lpath ? reinterpret_cast<const char*>(lpath) : "";
+        m.largeThumbnailSize = sqlite3_column_int64(st, 22);
+        m.largeThumbnailSha256 = lsha ? reinterpret_cast<const char*>(lsha) : "";
+        m.largeThumbnailW = sqlite3_column_int(st, 24);
+        m.largeThumbnailH = sqlite3_column_int(st, 25);
         out.push_back(std::move(m));
     }
     sqlite3_finalize(st);
@@ -953,7 +1014,7 @@ void Database::markDelivered(const std::vector<std::string>& msgIds)
 
 // 从结果集当前行装载一条 StoredMessage（列序须与 SELECT 一致：
 // msg_id, sender_id, receiver_id, type, content, media_path, img_w, img_h, ts, seq,
-// file_id, file_size, content_type, sha256）
+// file_id, file_size, content_type, sha256, thumbnail_file_id/path/size/sha256/w/h）
 static StoredMessage readMessageRow(sqlite3_stmt* st)
 {
     StoredMessage m;
@@ -977,6 +1038,24 @@ static StoredMessage readMessageRow(sqlite3_stmt* st)
     const unsigned char* sha256 = sqlite3_column_text(st, 13);
     m.contentType = contentType ? reinterpret_cast<const char*>(contentType) : "";
     m.sha256 = sha256 ? reinterpret_cast<const char*>(sha256) : "";
+    const unsigned char* thumbnailFileId = sqlite3_column_text(st, 14);
+    const unsigned char* thumbnailPath = sqlite3_column_text(st, 15);
+    const unsigned char* thumbnailSha = sqlite3_column_text(st, 17);
+    m.thumbnailFileId = thumbnailFileId ? reinterpret_cast<const char*>(thumbnailFileId) : "";
+    m.thumbnailPath = thumbnailPath ? reinterpret_cast<const char*>(thumbnailPath) : "";
+    m.thumbnailSize = sqlite3_column_int64(st, 16);
+    m.thumbnailSha256 = thumbnailSha ? reinterpret_cast<const char*>(thumbnailSha) : "";
+    m.thumbnailW = sqlite3_column_int(st, 18);
+    m.thumbnailH = sqlite3_column_int(st, 19);
+    const unsigned char* largeThumbnailFileId = sqlite3_column_text(st, 20);
+    const unsigned char* largeThumbnailPath = sqlite3_column_text(st, 21);
+    const unsigned char* largeThumbnailSha = sqlite3_column_text(st, 23);
+    m.largeThumbnailFileId = largeThumbnailFileId ? reinterpret_cast<const char*>(largeThumbnailFileId) : "";
+    m.largeThumbnailPath = largeThumbnailPath ? reinterpret_cast<const char*>(largeThumbnailPath) : "";
+    m.largeThumbnailSize = sqlite3_column_int64(st, 22);
+    m.largeThumbnailSha256 = largeThumbnailSha ? reinterpret_cast<const char*>(largeThumbnailSha) : "";
+    m.largeThumbnailW = sqlite3_column_int(st, 24);
+    m.largeThumbnailH = sqlite3_column_int(st, 25);
     return m;
 }
 
@@ -992,7 +1071,9 @@ std::vector<StoredMessage> Database::roamConversations(int userId)
     sqlite3_stmt* st = nullptr;
     if(sqlite3_prepare_v2(c.db,
         "SELECT m.msg_id, m.sender_id, m.receiver_id, m.type, m.content, m.media_path, "
-        "m.img_w, m.img_h, m.ts, m.seq, m.file_id, m.file_size, m.content_type, m.sha256 FROM messages m JOIN ("
+        "m.img_w, m.img_h, m.ts, m.seq, m.file_id, m.file_size, m.content_type, m.sha256, "
+        "m.thumbnail_file_id, m.thumbnail_path, m.thumbnail_size, m.thumbnail_sha256, m.thumbnail_w, m.thumbnail_h, "
+        "m.large_thumbnail_file_id, m.large_thumbnail_path, m.large_thumbnail_size, m.large_thumbnail_sha256, m.large_thumbnail_w, m.large_thumbnail_h FROM messages m JOIN ("
         "  SELECT conversation_id, MAX(id) AS mid FROM ("
         "    SELECT conversation_id, id FROM messages WHERE sender_id=?"
         "    UNION ALL"
@@ -1018,7 +1099,7 @@ std::vector<StoredMessage> Database::roamMessages(int userId, int peerId, std::i
     // 会话内比游标更早的 N 条（seq 倒序），走 idx_msg_conv_seq
     sqlite3_stmt* st = nullptr;
     if(sqlite3_prepare_v2(c.db,
-        "SELECT msg_id, sender_id, receiver_id, type, content, media_path, img_w, img_h, ts, seq, file_id, file_size, content_type, sha256 "
+        "SELECT msg_id, sender_id, receiver_id, type, content, media_path, img_w, img_h, ts, seq, file_id, file_size, content_type, sha256, thumbnail_file_id, thumbnail_path, thumbnail_size, thumbnail_sha256, thumbnail_w, thumbnail_h, large_thumbnail_file_id, large_thumbnail_path, large_thumbnail_size, large_thumbnail_sha256, large_thumbnail_w, large_thumbnail_h "
         "FROM messages WHERE conversation_id=? AND seq < ? ORDER BY seq DESC LIMIT ?;",
         -1, &st, nullptr) != SQLITE_OK) return out;
     sqlite3_bind_int64(st, 1, convId);
@@ -1035,7 +1116,7 @@ bool Database::getMessageByMsgId(const std::string& msgId, StoredMessage& out)
     std::lock_guard<std::mutex> lock(c.mtx);
     sqlite3_stmt* st = nullptr;
     if(sqlite3_prepare_v2(c.db,
-        "SELECT msg_id, sender_id, receiver_id, type, content, media_path, img_w, img_h, ts, seq, file_id, file_size, content_type, sha256 "
+        "SELECT msg_id, sender_id, receiver_id, type, content, media_path, img_w, img_h, ts, seq, file_id, file_size, content_type, sha256, thumbnail_file_id, thumbnail_path, thumbnail_size, thumbnail_sha256, thumbnail_w, thumbnail_h, large_thumbnail_file_id, large_thumbnail_path, large_thumbnail_size, large_thumbnail_sha256, large_thumbnail_w, large_thumbnail_h "
         "FROM messages WHERE msg_id=?;",
         -1, &st, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_text(st, 1, msgId.c_str(), -1, SQLITE_TRANSIENT);
@@ -1072,10 +1153,12 @@ bool Database::getMessageByFileId(const std::string& fileId, StoredMessage& out)
     std::lock_guard<std::mutex> lock(c.mtx);
     sqlite3_stmt* st = nullptr;
     if(sqlite3_prepare_v2(c.db,
-        "SELECT msg_id, sender_id, receiver_id, type, content, media_path, img_w, img_h, ts, seq, file_id, file_size, content_type, sha256 "
-        "FROM messages WHERE file_id=?;",
+        "SELECT msg_id, sender_id, receiver_id, type, content, media_path, img_w, img_h, ts, seq, file_id, file_size, content_type, sha256, thumbnail_file_id, thumbnail_path, thumbnail_size, thumbnail_sha256, thumbnail_w, thumbnail_h, large_thumbnail_file_id, large_thumbnail_path, large_thumbnail_size, large_thumbnail_sha256, large_thumbnail_w, large_thumbnail_h "
+        "FROM messages WHERE file_id=? OR thumbnail_file_id=? OR large_thumbnail_file_id=?;",
         -1, &st, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_text(st, 1, fileId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, fileId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 3, fileId.c_str(), -1, SQLITE_TRANSIENT);
     bool ok = false;
     if (sqlite3_step(st) == SQLITE_ROW) {
         // 按现有 getMessageByMsgId 的赋值逻辑填写 out
@@ -1099,7 +1182,64 @@ bool Database::getMessageByFileId(const std::string& fileId, StoredMessage& out)
         const unsigned char* sha256 = sqlite3_column_text(st, 13);
         out.contentType = contentType ? reinterpret_cast<const char*>(contentType) : "";
         out.sha256 = sha256 ? reinterpret_cast<const char*>(sha256) : "";
+        const unsigned char* thumbnailFileId = sqlite3_column_text(st, 14);
+        const unsigned char* thumbnailPath = sqlite3_column_text(st, 15);
+        out.thumbnailFileId = thumbnailFileId ? reinterpret_cast<const char*>(thumbnailFileId) : "";
+        out.thumbnailPath = thumbnailPath ? reinterpret_cast<const char*>(thumbnailPath) : "";
+        out.thumbnailSize = sqlite3_column_int64(st, 16);
+        const unsigned char* thumbnailSha = sqlite3_column_text(st, 17);
+        out.thumbnailSha256 = thumbnailSha ? reinterpret_cast<const char*>(thumbnailSha) : "";
+        out.thumbnailW = sqlite3_column_int(st, 18);
+        out.thumbnailH = sqlite3_column_int(st, 19);
+        const unsigned char* largeFileId = sqlite3_column_text(st, 20);
+        const unsigned char* largePath = sqlite3_column_text(st, 21);
+        const unsigned char* largeSha = sqlite3_column_text(st, 23);
+        out.largeThumbnailFileId = largeFileId ? reinterpret_cast<const char*>(largeFileId) : "";
+        out.largeThumbnailPath = largePath ? reinterpret_cast<const char*>(largePath) : "";
+        out.largeThumbnailSize = sqlite3_column_int64(st, 22);
+        out.largeThumbnailSha256 = largeSha ? reinterpret_cast<const char*>(largeSha) : "";
+        out.largeThumbnailW = sqlite3_column_int(st, 24);
+        out.largeThumbnailH = sqlite3_column_int(st, 25);
+        if (fileId == out.thumbnailFileId) out.mediaPath = out.thumbnailPath;
+        if (fileId == out.largeThumbnailFileId) out.mediaPath = out.largeThumbnailPath;
         ok = true;
+    }
+    sqlite3_finalize(st);
+    return ok;
+}
+
+bool Database::findMediaObject(const std::string& sha256, std::int64_t size, MediaObject& out)
+{
+    if (sha256.size() != 64 || size <= 0) return false;
+    Conn& c = acquire();
+    std::lock_guard<std::mutex> lock(c.mtx);
+    sqlite3_stmt* st = nullptr;
+    const char* sql =
+        "SELECT CASE WHEN sha256=? THEN media_path WHEN thumbnail_sha256=? THEN thumbnail_path ELSE large_thumbnail_path END, "
+        "CASE WHEN sha256=? THEN content_type ELSE 'image/avif' END "
+        "FROM messages WHERE (sha256=? AND file_size=?) OR "
+        "(thumbnail_sha256=? AND thumbnail_size=?) OR "
+        "(large_thumbnail_sha256=? AND large_thumbnail_size=?) LIMIT 1;";
+    if (sqlite3_prepare_v2(c.db, sql, -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(st, 1, sha256.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, sha256.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 3, sha256.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 4, sha256.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 5, size);
+    sqlite3_bind_text(st, 6, sha256.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 7, size);
+    sqlite3_bind_text(st, 8, sha256.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 9, size);
+    bool ok = false;
+    if (sqlite3_step(st) == SQLITE_ROW) {
+        const unsigned char* path = sqlite3_column_text(st, 0);
+        const unsigned char* type = sqlite3_column_text(st, 1);
+        out.path = path ? reinterpret_cast<const char*>(path) : "";
+        out.contentType = type ? reinterpret_cast<const char*>(type) : "application/octet-stream";
+        out.sha256 = sha256;
+        out.size = size;
+        std::error_code ec;
+        ok = !out.path.empty() && std::filesystem::exists(out.path, ec);
     }
     sqlite3_finalize(st);
     return ok;

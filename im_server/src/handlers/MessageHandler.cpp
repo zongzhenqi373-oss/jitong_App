@@ -58,6 +58,10 @@ void MessageHandler::onChat(const std::shared_ptr<Session>& session, const std::
 
     std::string mediaPath;
     std::int64_t fileSize = 0;
+    HttpFileServer::UploadRecord thumbnailRecord;
+    bool hasThumbnail = false;
+    HttpFileServer::UploadRecord largeThumbnailRecord;
+    bool hasLargeThumbnail = false;
     if (rq.type() == IMAGE || rq.type() == im::proto::FILE) {
         HttpFileServer::UploadRecord record;
         if (!m_files.findUploadRecord(rq.file_id(), record) ||
@@ -70,6 +74,29 @@ void MessageHandler::onChat(const std::shared_ptr<Session>& session, const std::
         rq.set_file_size(record.size);
         rq.set_content_type(record.contentType);
         rq.set_sha256(record.sha256);
+        if (rq.type() == IMAGE && !rq.thumbnail_file_id().empty()) {
+            if (!m_files.findUploadRecord(rq.thumbnail_file_id(), thumbnailRecord) ||
+                thumbnailRecord.uploaderId != userId || thumbnailRecord.receiverId != rq.friid() ||
+                thumbnailRecord.contentType.rfind("image/", 0) != 0) {
+                deliverFailure(session, rq, CHAT_RESULT_FILE_NOT_OWNED);
+                return;
+            }
+            hasThumbnail = true;
+            rq.set_thumbnail_size(thumbnailRecord.size);
+            rq.set_thumbnail_sha256(thumbnailRecord.sha256);
+        }
+        if (rq.type() == IMAGE && !rq.large_thumbnail_file_id().empty()) {
+            if (!m_files.findUploadRecord(rq.large_thumbnail_file_id(), largeThumbnailRecord) ||
+                largeThumbnailRecord.uploaderId != userId ||
+                largeThumbnailRecord.receiverId != rq.friid() ||
+                largeThumbnailRecord.contentType.rfind("image/", 0) != 0) {
+                deliverFailure(session, rq, CHAT_RESULT_FILE_NOT_OWNED);
+                return;
+            }
+            hasLargeThumbnail = true;
+            rq.set_large_thumbnail_size(largeThumbnailRecord.size);
+            rq.set_large_thumbnail_sha256(largeThumbnailRecord.sha256);
+        }
     }
 
     StoredMessage message;
@@ -86,6 +113,18 @@ void MessageHandler::onChat(const std::shared_ptr<Session>& session, const std::
     message.fileSize = fileSize;
     message.contentType = rq.content_type();
     message.sha256 = rq.sha256();
+    message.thumbnailFileId = rq.thumbnail_file_id();
+    message.thumbnailPath = hasThumbnail ? thumbnailRecord.mediaPath : "";
+    message.thumbnailSize = rq.thumbnail_size();
+    message.thumbnailSha256 = rq.thumbnail_sha256();
+    message.thumbnailW = rq.thumbnail_width();
+    message.thumbnailH = rq.thumbnail_height();
+    message.largeThumbnailFileId = rq.large_thumbnail_file_id();
+    message.largeThumbnailPath = hasLargeThumbnail ? largeThumbnailRecord.mediaPath : "";
+    message.largeThumbnailSize = rq.large_thumbnail_size();
+    message.largeThumbnailSha256 = rq.large_thumbnail_sha256();
+    message.largeThumbnailW = rq.large_thumbnail_width();
+    message.largeThumbnailH = rq.large_thumbnail_height();
     message.ts = nowSec();
 
     auto target = m_presence.get(rq.friid());
@@ -96,6 +135,8 @@ void MessageHandler::onChat(const std::shared_ptr<Session>& session, const std::
     }
     if (message.type == 1 || message.type == 2) {
         m_files.eraseUploadRecord(message.fileId);
+        if (hasThumbnail) m_files.eraseUploadRecord(message.thumbnailFileId);
+        if (hasLargeThumbnail) m_files.eraseUploadRecord(message.largeThumbnailFileId);
     }
 
     rq.set_msg_id(message.msgId);

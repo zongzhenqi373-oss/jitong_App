@@ -8,7 +8,8 @@ plugins {
 
 android {
     namespace = "com.jitong.im"
-    compileSdk = 34
+    // avif-coder 的 AAR 以 API 36 编译；只提高编译 API，不改变 minSdk/targetSdk 行为。
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.jitong.im"
@@ -40,7 +41,18 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        // avif-coder 2.2.x 由 Kotlin 2.3 发布，但这里只使用稳定的 Java 可见 API。
+        // 允许 Kotlin 2.0 编译器读取其元数据；运行时统一使用项目的 2.0.20 stdlib。
+        freeCompilerArgs.add("-Xskip-metadata-version-check")
     }
+}
+
+configurations.configureEach {
+    resolutionStrategy.force(
+        "org.jetbrains.kotlin:kotlin-stdlib:2.0.20",
+        "org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.20",
+        "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.20",
+    )
 }
 
 // protoc 现场生成 protobuf-javalite 代码，与 client_core/im_server 的 CMake 策略一致：
@@ -89,6 +101,16 @@ dependencies {
 
     // MMKV：KV 凭证/配置（对齐 QQNT 双存储：MMKV=KV，Room=消息）
     implementation("com.tencent:mmkv-static:1.3.5")
+
+    // 中文消息搜索：入库时同时生成全拼和首字母（例如“今天天气” ->
+    // jintiantianqi / jttq），与正文一起写入 FTS4。
+    // 原 com.github.promeg 坐标发布在已停止服务的 JCenter，mavenCentral() 无法解析。
+    // 使用 Maven Central 上保持相同 com.github.promeg.pinyinhelper API 的再发布版本。
+    implementation("me.majiajie:tinypinyin:2.0.3")
+
+    // 图片消息编码统一改用 JPEG（系统解码稳定、颜色准确）。
+    // avif-coder 仅保留用于解码历史已发出的 AVIF 旧消息（其部分 ABI 存在 G/B 通道错位）。
+    implementation("io.github.awxkee:avif-coder:2.2.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")

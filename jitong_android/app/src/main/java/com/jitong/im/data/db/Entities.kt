@@ -36,6 +36,18 @@ data class MessageEntity(
     val fileSize: Long = 0,
     val contentType: String = "",
     val sha256: String = "",
+    val thumbnailFileId: String = "",
+    val thumbnailPath: String? = null,
+    val thumbnailSize: Long = 0,
+    val thumbnailSha256: String = "",
+    val thumbnailW: Int = 0,
+    val thumbnailH: Int = 0,
+    val largeThumbnailFileId: String = "",
+    val largeThumbnailPath: String? = null,
+    val largeThumbnailSize: Long = 0,
+    val largeThumbnailSha256: String = "",
+    val largeThumbnailW: Int = 0,
+    val largeThumbnailH: Int = 0,
     val localPath: String? = null,   // 文件本地路径（.part 进行中 / 成品）
     val transferred: Int = 0,        // 已传/已收块数（进度 + 续传游标）
     val status: Int,              // 0发送中 1已送达 2已接收 3离线转存
@@ -50,6 +62,8 @@ data class MessageEntity(
 @Entity(tableName = "messages_fts")
 data class MessageFtsEntity(
     val content: String,
+    val pinyin: String,
+    val initials: String,
     val msgId: String,
 )
 

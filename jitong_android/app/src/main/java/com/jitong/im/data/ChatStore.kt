@@ -46,7 +46,8 @@ class ChatStore(context: Context, ownerId: Int, key: ByteArray) {
                 val lastMsg = when (m.kind) {
                     MsgKind.IMAGE -> "[图片]"
                     MsgKind.FILE -> "[文件] ${m.fileName}"
-                    else -> m.text
+                    MsgKind.TEXT -> m.text
+                    else -> " "
                 }
                 db.conversationDao().upsertOnMessage(
                     conversationId(ownerId, m.peerId), ownerId, m.peerId,
@@ -90,6 +91,18 @@ class ChatStore(context: Context, ownerId: Int, key: ByteArray) {
             db.messageDao().updateMediaMetadata(ownerId, msgId, fileId, contentType, sha256)
         }
 
+    suspend fun updateThumbnail(ownerId: Int, msgId: String, fileId: String, path: String?,
+                                size: Long, sha256: String, w: Int, h: Int) =
+        withContext(Dispatchers.IO) {
+            db.messageDao().updateThumbnail(ownerId, msgId, fileId, path, size, sha256, w, h)
+        }
+
+    suspend fun updateLargeThumbnail(ownerId: Int, msgId: String, fileId: String, path: String?,
+                                     size: Long, sha256: String, w: Int, h: Int) =
+        withContext(Dispatchers.IO) {
+            db.messageDao().updateLargeThumbnail(ownerId, msgId, fileId, path, size, sha256, w, h)
+        }
+
     suspend fun clearUnread(ownerId: Int, peerId: Int) = withContext(Dispatchers.IO) {
         db.conversationDao().clearUnread(conversationId(ownerId, peerId))
     }
@@ -99,34 +112,56 @@ class ChatStore(context: Context, ownerId: Int, key: ByteArray) {
         withContext(Dispatchers.IO) {
             // 下载任务只存在于当前进程内；重登/重启后遗留的接收方 SENDING 不可能仍在运行。
             db.messageDao().recoverInterruptedFileDownloads(ownerId)
-            val messages = db.messageDao().allForOwner(ownerId)
+            val entities = db.messageDao().allForOwner(ownerId)
+            if (entities.isNotEmpty() && db.messageDao().ftsCount() == 0) {
+                db.messageDao().rebuildFts(entities)
+            }
+            val messages = entities
                 .map { it.toChatMessage() }
                 .groupBy { it.peerId }
             val convs = db.conversationDao().allForOwner(ownerId).associateBy { it.peerId }
             messages to convs
         }
 
-    /** FTS 前缀 + LIKE 子串双路搜索，按 msgId 去重、时间倒序 */
+    /** FTS 前缀 + 正文/拼音/首字母子串搜索，按 msgId 去重、时间倒序。 */
     suspend fun search(ownerId: Int, kw: String): List<MessageEntity> = withContext(Dispatchers.IO) {
-        val pattern = "\"" + kw.replace("\"", "\"\"") + "\"*"
+        val normalized = kw.trim().lowercase()
+        val pattern = ftsPattern(normalized)
         val fts = runCatching { db.messageDao().searchFts(ownerId, pattern) }.getOrDefault(emptyList())
-        val like = db.messageDao().searchLike(ownerId, kw)
-        (fts + like).distinctBy { it.msgId }.sortedByDescending { it.ts }
+        val contentLike = db.messageDao().searchLike(ownerId, normalized)
+        val pinyinLike = if (isSinglePinyinInitial(normalized)) {
+            db.messageDao().searchInitialsLike(ownerId, normalized)
+        } else {
+            db.messageDao().searchPinyinLike(ownerId, normalized)
+        }
+        (fts + contentLike + pinyinLike).distinctBy { it.msgId }.sortedByDescending { it.ts }
     }
 
     /** 当前单聊内搜索。结果仍按时间倒序，FTS 不可用时 LIKE 查询仍可工作。 */
     suspend fun searchConversation(ownerId: Int, peerId: Int, kw: String): List<MessageEntity> =
         withContext(Dispatchers.IO) {
             val conversationId = conversationId(ownerId, peerId)
-            val pattern = "\"" + kw.replace("\"", "\"\"") + "\"*"
+            val normalized = kw.trim().lowercase()
+            val pattern = ftsPattern(normalized)
             val fts = runCatching {
                 db.messageDao().searchConversationFts(ownerId, conversationId, pattern)
             }.getOrDefault(emptyList())
-            val like = db.messageDao().searchConversationLike(ownerId, conversationId, kw)
-            (fts + like).distinctBy { it.msgId }.sortedByDescending { it.ts }
+            val contentLike = db.messageDao()
+                .searchConversationLike(ownerId, conversationId, normalized)
+            val pinyinLike = if (isSinglePinyinInitial(normalized)) {
+                db.messageDao().searchConversationInitialsLike(ownerId, conversationId, normalized)
+            } else {
+                db.messageDao().searchConversationPinyinLike(ownerId, conversationId, normalized)
+            }
+            (fts + contentLike + pinyinLike).distinctBy { it.msgId }.sortedByDescending { it.ts }
         }
 
     // ---------------- 内部 ----------------
+
+    private fun ftsPattern(keyword: String): String = keyword.trim()
+        .split(Regex("\\s+"))
+        .filter { it.isNotBlank() }
+        .joinToString(" AND ") { "\"${it.replace("\"", "\"\"")}\"*" }
 
     private fun writeImageFile(msgId: String, bytes: ByteArray): String {
         val dir = File(appContext.filesDir, "img").apply { mkdirs() }
@@ -138,6 +173,7 @@ class ChatStore(context: Context, ownerId: Int, key: ByteArray) {
     private fun extOf(bytes: ByteArray): String = when {
         bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() -> ".png"
         bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() -> ".jpg"
+        bytes.size >= 12 && String(bytes, 4, 8, Charsets.ISO_8859_1).contains("ftypavi") -> ".avif"
         else -> ".bin"
     }
 
@@ -154,6 +190,14 @@ class ChatStore(context: Context, ownerId: Int, key: ByteArray) {
             imageBytes = bytes, imgW = imgW, imgH = imgH, ts = ts, seq = seq,
             fileId = fileId, fileName = fileName, fileSize = fileSize,
             contentType = contentType, sha256 = sha256,
+            thumbnailFileId = thumbnailFileId, thumbnailPath = thumbnailPath,
+            thumbnailSize = thumbnailSize, thumbnailSha256 = thumbnailSha256,
+            thumbnailW = thumbnailW, thumbnailH = thumbnailH,
+            largeThumbnailFileId = largeThumbnailFileId,
+            largeThumbnailPath = largeThumbnailPath,
+            largeThumbnailSize = largeThumbnailSize,
+            largeThumbnailSha256 = largeThumbnailSha256,
+            largeThumbnailW = largeThumbnailW, largeThumbnailH = largeThumbnailH,
             localPath = localPath, transferred = transferred,
             status = when (status) {
                 0 -> ChatMessage.Status.SENDING
@@ -180,6 +224,14 @@ class ChatStore(context: Context, ownerId: Int, key: ByteArray) {
         imgW = imgW, imgH = imgH, ts = ts, seq = seq,
         fileId = fileId, fileName = fileName, fileSize = fileSize,
         contentType = contentType, sha256 = sha256,
+        thumbnailFileId = thumbnailFileId, thumbnailPath = thumbnailPath,
+        thumbnailSize = thumbnailSize, thumbnailSha256 = thumbnailSha256,
+        thumbnailW = thumbnailW, thumbnailH = thumbnailH,
+        largeThumbnailFileId = largeThumbnailFileId,
+        largeThumbnailPath = largeThumbnailPath,
+        largeThumbnailSize = largeThumbnailSize,
+        largeThumbnailSha256 = largeThumbnailSha256,
+        largeThumbnailW = largeThumbnailW, largeThumbnailH = largeThumbnailH,
         localPath = localPath, transferred = transferred,
         status = status.toDb(),
     )
@@ -191,5 +243,8 @@ class ChatStore(context: Context, ownerId: Int, key: ByteArray) {
         ChatMessage.Status.OFFLINE_STORED -> 3
         ChatMessage.Status.FAILED -> 4
     }
+
+    private fun isSinglePinyinInitial(keyword: String): Boolean =
+        keyword.length == 1 && keyword[0] in 'a'..'z'
 
 }

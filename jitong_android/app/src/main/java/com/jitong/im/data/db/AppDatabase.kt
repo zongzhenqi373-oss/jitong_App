@@ -8,7 +8,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @Database(
     entities = [MessageEntity::class, MessageFtsEntity::class, ConversationEntity::class],
-    version = 5,
+    version = 8,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -54,6 +54,39 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // FTS 虚表不能可靠 ALTER COLUMN，重建后由 ChatStore 用原 messages 表回填。
+                db.execSQL("DROP TABLE IF EXISTS messages_fts")
+                db.execSQL(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts " +
+                        "USING FTS4(content, pinyin, initials, msgId)",
+                )
+            }
+        }
+
+        val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN thumbnailFileId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE messages ADD COLUMN thumbnailPath TEXT")
+                db.execSQL("ALTER TABLE messages ADD COLUMN thumbnailSize INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE messages ADD COLUMN thumbnailSha256 TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE messages ADD COLUMN thumbnailW INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE messages ADD COLUMN thumbnailH INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_7_8 = object : androidx.room.migration.Migration(7, 8) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN largeThumbnailFileId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE messages ADD COLUMN largeThumbnailPath TEXT")
+                db.execSQL("ALTER TABLE messages ADD COLUMN largeThumbnailSize INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE messages ADD COLUMN largeThumbnailSha256 TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE messages ADD COLUMN largeThumbnailW INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE messages ADD COLUMN largeThumbnailH INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         /**
          * 打开指定账号的加密本地库；key 由调用方通过 DbKeyManager 拿到（登录后才可用）。
          * 每个 ownerId 各自一个物理库文件（jitong_<ownerId>.db），互不共享密钥，
@@ -72,7 +105,8 @@ abstract class AppDatabase : RoomDatabase() {
             )
                 // Factory 会持有/使用传入的口令数组；传副本，避免影响调用方持有的 key。
                 .openHelperFactory(SupportOpenHelperFactory(key.copyOf()))
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+                    MIGRATION_6_7, MIGRATION_7_8)
                 // 演示项目：非预期升级路径仍直接重建本地库（消息可从服务端漫游/补发恢复）
                 .fallbackToDestructiveMigration()
                 .build()

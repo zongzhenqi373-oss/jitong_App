@@ -96,6 +96,16 @@ class ImClient {
             val fileSize: Long,
             val contentType: String,
             val sha256: String,
+            val thumbnailFileId: String,
+            val thumbnailSize: Long,
+            val thumbnailSha256: String,
+            val thumbnailW: Int,
+            val thumbnailH: Int,
+            val largeThumbnailFileId: String,
+            val largeThumbnailSize: Long,
+            val largeThumbnailSha256: String,
+            val largeThumbnailW: Int,
+            val largeThumbnailH: Int,
         )
 
         /** 漫游会话列表结果：每会话最后一条（仅用于会话预览行，不落消息表） */
@@ -113,6 +123,11 @@ class ImClient {
             val fromId: Int, val fileId: String, val name: String, val size: Long,
             val msgId: String, val ts: Long, val seq: Long, val isImage: Boolean,
             val contentType: String, val sha256: String, val width: Int, val height: Int,
+            val thumbnailFileId: String, val thumbnailSize: Long, val thumbnailSha256: String,
+            val thumbnailW: Int, val thumbnailH: Int,
+            val largeThumbnailFileId: String, val largeThumbnailSize: Long,
+            val largeThumbnailSha256: String, val largeThumbnailW: Int,
+            val largeThumbnailH: Int,
         ) : Event
 
         data class FriendOffline(val userId: Int) : Event
@@ -354,6 +369,11 @@ class ImClient {
         friId: Int, fileId: String, fileName: String, size: Long,
         contentType: String, sha256: String, isImage: Boolean,
         w: Int, h: Int, msgId: String,
+        thumbnailFileId: String = "", thumbnailSize: Long = 0,
+        thumbnailSha256: String = "", thumbnailW: Int = 0, thumbnailH: Int = 0,
+        largeThumbnailFileId: String = "", largeThumbnailSize: Long = 0,
+        largeThumbnailSha256: String = "", largeThumbnailW: Int = 0,
+        largeThumbnailH: Int = 0,
     ) {
         val rq = Im.ChatInfoRq.newBuilder()
             .setMyid(myId)
@@ -367,6 +387,16 @@ class ImClient {
             .setFileSize(size)
             .setContentType(contentType)
             .setSha256(sha256)
+            .setThumbnailFileId(thumbnailFileId)
+            .setThumbnailSize(thumbnailSize)
+            .setThumbnailSha256(thumbnailSha256)
+            .setThumbnailWidth(thumbnailW)
+            .setThumbnailHeight(thumbnailH)
+            .setLargeThumbnailFileId(largeThumbnailFileId)
+            .setLargeThumbnailSize(largeThumbnailSize)
+            .setLargeThumbnailSha256(largeThumbnailSha256)
+            .setLargeThumbnailWidth(largeThumbnailW)
+            .setLargeThumbnailHeight(largeThumbnailH)
             .build()
         send(Protocol.CHAT_INFO_RQ, rq.toByteArray())
     }
@@ -441,6 +471,14 @@ class ImClient {
             msgId = msgId, ts = tsMs, seq = seq,
             fileId = fileId, fileName = fileName, fileSize = fileSize,
             contentType = contentType, sha256 = sha256,
+            thumbnailFileId = thumbnailFileId, thumbnailSize = thumbnailSize,
+            thumbnailSha256 = thumbnailSha256, thumbnailW = thumbnailWidth,
+            thumbnailH = thumbnailHeight,
+            largeThumbnailFileId = largeThumbnailFileId,
+            largeThumbnailSize = largeThumbnailSize,
+            largeThumbnailSha256 = largeThumbnailSha256,
+            largeThumbnailW = largeThumbnailWidth,
+            largeThumbnailH = largeThumbnailHeight,
         )
     }
 
@@ -541,6 +579,11 @@ class ImClient {
                             rq.myid, rq.fileId, rq.fileName, rq.fileSize, rq.msgId, tsMs, rq.seq,
                             rq.type == Im.MsgType.IMAGE, rq.contentType, rq.sha256,
                             rq.imageWidth, rq.imageHeight,
+                            rq.thumbnailFileId, rq.thumbnailSize, rq.thumbnailSha256,
+                            rq.thumbnailWidth, rq.thumbnailHeight,
+                            rq.largeThumbnailFileId, rq.largeThumbnailSize,
+                            rq.largeThumbnailSha256, rq.largeThumbnailWidth,
+                            rq.largeThumbnailHeight,
                         ))
                     else -> Unit
                 }

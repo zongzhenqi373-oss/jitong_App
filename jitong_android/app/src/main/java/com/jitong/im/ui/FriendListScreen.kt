@@ -56,6 +56,7 @@ fun FriendListScreen(vm: MainViewModel) {
                     myNick, friends, conversations, results, query,
                     onQuery = { query = it; vm.search(it) },
                     onOpen = vm::openChat,
+                    onOpenAt = vm::openChatAt,
                     onAddFriend = { showAddFriend = true },
                     onMenu = { showMenu = true },
                 )
@@ -102,7 +103,8 @@ fun FriendListScreen(vm: MainViewModel) {
 private fun MessagesTab(
     myNick: String, friends: List<Friend>, conversations: Map<Int, com.jitong.im.data.db.ConversationEntity>,
     results: List<com.jitong.im.data.db.MessageEntity>, query: String,
-    onQuery: (String) -> Unit, onOpen: (Friend) -> Unit, onAddFriend: () -> Unit, onMenu: () -> Unit,
+    onQuery: (String) -> Unit, onOpen: (Friend) -> Unit, onOpenAt: (Friend, String) -> Unit,
+    onAddFriend: () -> Unit, onMenu: () -> Unit,
 ) {
     HomeHeader(myNick.ifBlank { "即通用户" }, onMenu)
     SearchBox(query, onQuery, "搜索聊天记录")
@@ -117,7 +119,9 @@ private fun MessagesTab(
         when {
             query.isNotBlank() -> LazyColumn {
                 items(results, key = { it.msgId }) { m ->
-                    friends.firstOrNull { it.id == m.peerId }?.let { SearchResultRow(it, m.content.orEmpty(), m.ts) { onOpen(it) } }
+                    friends.firstOrNull { it.id == m.peerId }?.let {
+                        SearchResultRow(it, m.content.orEmpty(), query, m.ts) { onOpenAt(it, m.msgId) }
+                    }
                 }
             }
             friends.isEmpty() -> EmptyState("还没有消息", "点击上方“添加好友”开始聊天")
@@ -422,9 +426,27 @@ private fun NewFriendsDialog(
     Column(Modifier.fillMaxWidth().padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally) { JitongLogo(58.dp); Spacer(Modifier.height(12.dp)); Text(title, fontWeight = FontWeight.SemiBold); Text(subtitle, color = SecondaryText, fontSize = 13.sp) }
 }
 
-@Composable private fun SearchResultRow(friend: Friend, content: String, ts: Long, onClick: () -> Unit) {
+@Composable private fun SearchResultRow(
+    friend: Friend,
+    content: String,
+    query: String,
+    ts: Long,
+    onClick: () -> Unit,
+) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Avatar(friend.id, friend.nick, 44.dp); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(friend.nick, fontWeight = FontWeight.SemiBold); Text(formatTs(ts), color = SecondaryText, fontSize = 11.sp) }; Text(content, color = SecondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        Avatar(friend.id, friend.nick, 44.dp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(friend.nick, fontWeight = FontWeight.SemiBold)
+                Text(formatTs(ts), color = SecondaryText, fontSize = 11.sp)
+            }
+            Text(
+                text = highlightedSearchText(content, query, JitongBlue, SecondaryText),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

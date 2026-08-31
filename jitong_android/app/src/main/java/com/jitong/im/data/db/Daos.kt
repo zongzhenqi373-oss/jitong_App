@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import com.jitong.im.util.PinyinIndex
 
 @Dao
 interface MessageDao {
@@ -22,9 +23,27 @@ interface MessageDao {
         val rowId = insert(entity)
         if (rowId == -1L) return false
         if (entity.type == 0 && !entity.content.isNullOrEmpty()) {
-            insertFts(MessageFtsEntity(content = entity.content, msgId = entity.msgId))
+            val py = PinyinIndex.of(entity.content)
+            insertFts(MessageFtsEntity(entity.content, py.full, py.initials, entity.msgId))
         }
         return true
+    }
+
+    @Query("SELECT COUNT(*) FROM messages_fts")
+    suspend fun ftsCount(): Int
+
+    @Query("DELETE FROM messages_fts")
+    suspend fun clearFts()
+
+    /** 升级到拼音索引后，为旧消息一次性重建 FTS。 */
+    @Transaction
+    suspend fun rebuildFts(messages: List<MessageEntity>) {
+        clearFts()
+        messages.filter { it.type == 0 && !it.content.isNullOrEmpty() }.forEach { entity ->
+            val content = entity.content.orEmpty()
+            val py = PinyinIndex.of(content)
+            insertFts(MessageFtsEntity(content, py.full, py.initials, entity.msgId))
+        }
     }
 
     @Query("SELECT * FROM messages WHERE ownerId = :ownerId ORDER BY CASE WHEN seq > 0 THEN seq ELSE 9223372036854775807 END, ts, id")
@@ -65,6 +84,18 @@ interface MessageDao {
     @Query("UPDATE messages SET fileId=:fileId, contentType=:contentType, sha256=:sha256 WHERE ownerId=:ownerId AND msgId=:msgId")
     suspend fun updateMediaMetadata(ownerId: Int, msgId: String, fileId: String, contentType: String, sha256: String)
 
+    @Query("""UPDATE messages SET thumbnailFileId=:fileId, thumbnailPath=:path,
+        thumbnailSize=:size, thumbnailSha256=:sha256, thumbnailW=:w, thumbnailH=:h
+        WHERE ownerId=:ownerId AND msgId=:msgId""")
+    suspend fun updateThumbnail(ownerId: Int, msgId: String, fileId: String, path: String?,
+                                size: Long, sha256: String, w: Int, h: Int)
+
+    @Query("""UPDATE messages SET largeThumbnailFileId=:fileId, largeThumbnailPath=:path,
+        largeThumbnailSize=:size, largeThumbnailSha256=:sha256,
+        largeThumbnailW=:w, largeThumbnailH=:h WHERE ownerId=:ownerId AND msgId=:msgId""")
+    suspend fun updateLargeThumbnail(ownerId: Int, msgId: String, fileId: String, path: String?,
+                                     size: Long, sha256: String, w: Int, h: Int)
+
     /** FTS 前缀匹配（simple 分词：英文按词、中文整串前缀） */
     @Query(
         """SELECT m.* FROM messages m JOIN messages_fts f ON m.msgId = f.msgId
@@ -79,6 +110,35 @@ interface MessageDao {
            AND content LIKE '%' || :kw || '%' ORDER BY ts DESC LIMIT 100"""
     )
     suspend fun searchLike(ownerId: Int, kw: String): List<MessageEntity>
+
+    /** 单字母拼音查询：只匹配汉字的拼音首字母，让“n”命中“你/年”而不误命中“真/正”。 */
+    @Query(
+        """SELECT m.* FROM messages m
+       JOIN messages_fts f ON m.msgId = f.msgId
+       WHERE m.ownerId = :ownerId
+       AND instr(f.initials, :kw) > 0
+       ORDER BY m.ts DESC LIMIT 100"""
+    )
+    suspend fun searchInitialsLike(
+        ownerId: Int,
+        kw: String,
+    ): List<MessageEntity>
+
+    /** 多字母拼音查询：支持连续全拼和首字母组合。 */
+    @Query(
+        """SELECT m.* FROM messages m
+       JOIN messages_fts f ON m.msgId = f.msgId
+       WHERE m.ownerId = :ownerId
+       AND (
+           instr(f.pinyin, :kw) > 0
+           OR instr(f.initials, :kw) > 0
+       )
+       ORDER BY m.ts DESC LIMIT 100"""
+    )
+    suspend fun searchPinyinLike(
+        ownerId: Int,
+        kw: String,
+    ): List<MessageEntity>
 
     /** 单个会话内的全文搜索；conversationId 条件保证不会混入其他聊天。 */
     @Query(
@@ -100,6 +160,39 @@ interface MessageDao {
            AND content LIKE '%' || :kw || '%' ORDER BY ts DESC LIMIT 100"""
     )
     suspend fun searchConversationLike(
+        ownerId: Int,
+        conversationId: Long,
+        kw: String,
+    ): List<MessageEntity>
+
+    /** 当前会话内，单字母只匹配拼音首字母。 */
+    @Query(
+        """SELECT m.* FROM messages m
+       JOIN messages_fts f ON m.msgId = f.msgId
+       WHERE m.ownerId = :ownerId
+       AND m.conversationId = :conversationId
+       AND instr(f.initials, :kw) > 0
+       ORDER BY m.ts DESC LIMIT 100"""
+    )
+    suspend fun searchConversationInitialsLike(
+        ownerId: Int,
+        conversationId: Long,
+        kw: String,
+    ): List<MessageEntity>
+
+    /** 当前会话内，多字母匹配连续全拼或首字母组合。 */
+    @Query(
+        """SELECT m.* FROM messages m
+       JOIN messages_fts f ON m.msgId = f.msgId
+       WHERE m.ownerId = :ownerId
+       AND m.conversationId = :conversationId
+       AND (
+           instr(f.pinyin, :kw) > 0
+           OR instr(f.initials, :kw) > 0
+       )
+       ORDER BY m.ts DESC LIMIT 100"""
+    )
+    suspend fun searchConversationPinyinLike(
         ownerId: Int,
         conversationId: Long,
         kw: String,

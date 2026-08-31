@@ -122,6 +122,16 @@ message ChatInfoRq {
                             // （下载地址由客户端自行拼接 /api/v1/download/{file_id}，不落地存 URL）
   string content_type = 14; // MIME 类型，服务端在 HTTP 上传时嗅探/记录
   string sha256 = 15;       // 整文件哈希（小写 hex），服务端在 HTTP 上传时计算
+  string thumbnail_file_id = 16; // IMAGE：独立缩略图对象，列表优先拉取它
+  int32 thumbnail_width = 17;
+  int32 thumbnail_height = 18;
+  int64 thumbnail_size = 19;
+  string thumbnail_sha256 = 20;
+  string large_thumbnail_file_id = 21; // IMAGE：保持原比例的大缩略图，可视区预取/查看页兜底
+  int32 large_thumbnail_width = 22;
+  int32 large_thumbnail_height = 23;
+  int64 large_thumbnail_size = 24;
+  string large_thumbnail_sha256 = 25;
 }
 
 // S→C：发送结果回执（myid=接收方朋友, friid=自己）

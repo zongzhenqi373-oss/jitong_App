@@ -110,6 +110,7 @@ fun ChatSearchScreen(vm: MainViewModel) {
                                     MsgKind.IMAGE -> "[图片]"
                                     MsgKind.FILE -> "[文件] ${message.fileName}"
                                 },
+                                query = "",
                                 ts = message.ts,
                                 onClick = { vm.returnToChatAt(message.msgId) },
                             )
@@ -120,6 +121,7 @@ fun ChatSearchScreen(vm: MainViewModel) {
                                 avatarId = if (message.fromMe) vm.myId else currentPeer.id,
                                 senderName = if (message.fromMe) myNick.ifBlank { "我" } else currentPeer.nick,
                                 content = message.content.orEmpty(),
+                                query = query,
                                 ts = message.ts,
                                 onClick = { vm.returnToChatAt(message.msgId) },
                             )
@@ -136,6 +138,7 @@ private fun ChatHistorySearchRow(
     avatarId: Int,
     senderName: String,
     content: String,
+    query: String,
     ts: Long,
     onClick: () -> Unit,
 ) {
@@ -151,7 +154,17 @@ private fun ChatHistorySearchRow(
                     Text(senderName, color = SecondaryText, fontSize = 13.sp, modifier = Modifier.weight(1f))
                     Text(formatSearchTime(ts), color = SecondaryText, fontSize = 12.sp)
                 }
-                Text(content, maxLines = 3, overflow = TextOverflow.Ellipsis, fontSize = 16.sp)
+                Text(
+                    text = highlightedSearchText(
+                        content = content,
+                        query = query,
+                        highlightColor = JitongBlue,
+                        normalColor = Color(0xFF1B1F26),
+                    ),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 16.sp,
+                )
                 Text("定位到聊天位置", color = JitongBlue, fontSize = 12.sp)
             }
         }

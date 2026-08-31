@@ -30,6 +30,7 @@ std::string guessContentType(const std::string& path)
     if (ext == ".gif") return "image/gif";
     if (ext == ".bmp") return "image/bmp";
     if (ext == ".webp") return "image/webp";
+    if (ext == ".avif") return "image/avif";
     return "application/octet-stream";
 }
 
@@ -48,8 +49,84 @@ HttpFileServer::HttpFileServer(Server& server, std::uint16_t port, std::string c
         [this](const httplib::Request& req, httplib::Response& res, const httplib::ContentReader& reader) {
             handleUpload(req, res, reader);
         });
+    m_svr.Post("/api/v1/upload/preflight",
+        [this](const httplib::Request& req, httplib::Response& res) { handlePreflight(req, res); });
+    m_svr.Post(R"(/api/v1/upload/proof/([a-zA-Z0-9._-]+))",
+        [this](const httplib::Request& req, httplib::Response& res) { handleProof(req, res); });
     m_svr.Get(R"(/api/v1/download/([a-zA-Z0-9._-]+))",
         [this](const httplib::Request& req, httplib::Response& res) { handleDownload(req, res); });
+}
+
+void HttpFileServer::handlePreflight(const httplib::Request& req, httplib::Response& res)
+{
+    int userId = 0;
+    std::string deviceId;
+    if (!authenticate(req, userId, deviceId)) { res.status = 401; return; }
+    int receiverId = 0;
+    std::int64_t size = 0;
+    try {
+        receiverId = std::stoi(req.get_header_value("X-Receiver-Id"));
+        size = std::stoll(req.get_header_value("X-File-Size"));
+    } catch (...) { res.status = 400; return; }
+    const std::string sha = req.get_header_value("X-File-Sha256");
+    if (!m_server.db().isFriend(userId, receiverId)) { res.status = 403; return; }
+    Database::MediaObject object;
+    if (!m_server.db().findMediaObject(sha, size, object)) {
+        res.set_content("{\"hit\":false}", "application/json");
+        return;
+    }
+
+    constexpr std::int64_t kProofBytes = 64 * 1024;
+    const std::int64_t length = std::min(kProofBytes, size);
+    const std::string seed = im::sha256Hex(std::to_string(userId) + "|" + sha + "|" + std::to_string(nowSec()));
+    const std::uint64_t n = std::stoull(seed.substr(0, 16), nullptr, 16);
+    const std::int64_t offset = size > length ? static_cast<std::int64_t>(n % (size - length + 1)) : 0;
+    const std::string challengeId = im::sha256Hex(seed + "|" + std::to_string(offset));
+    {
+        std::lock_guard<std::mutex> lg(m_uploadMtx);
+        m_challenges[challengeId] = ProofChallenge{userId, receiverId, object.path, sha, size,
+            object.contentType, offset, length, nowSec()};
+    }
+    res.set_content("{\"hit\":true,\"challenge_id\":\"" + challengeId +
+        "\",\"offset\":" + std::to_string(offset) + ",\"length\":" + std::to_string(length) + "}",
+        "application/json");
+}
+
+void HttpFileServer::handleProof(const httplib::Request& req, httplib::Response& res)
+{
+    int userId = 0;
+    std::string deviceId;
+    if (!authenticate(req, userId, deviceId)) { res.status = 401; return; }
+    const std::string challengeId = req.matches[1];
+    ProofChallenge challenge;
+    {
+        std::lock_guard<std::mutex> lg(m_uploadMtx);
+        auto it = m_challenges.find(challengeId);
+        if (it == m_challenges.end()) { res.status = 404; return; }
+        challenge = it->second;
+        m_challenges.erase(it); // 单次使用，防重放
+    }
+    if (challenge.uploaderId != userId || nowSec() - challenge.createdAt > 300 ||
+        static_cast<std::int64_t>(req.body.size()) != challenge.length) {
+        res.status = 403; return;
+    }
+    std::ifstream input(challenge.path, std::ios::binary);
+    input.seekg(challenge.offset);
+    std::string expected(static_cast<std::size_t>(challenge.length), '\0');
+    input.read(expected.data(), static_cast<std::streamsize>(challenge.length));
+    if (!input || expected != req.body) { res.status = 409; return; }
+
+    static std::atomic<std::uint64_t> proofCounter{0};
+    const std::string fileId = im::sha256Hex(challengeId + "|" + std::to_string(proofCounter.fetch_add(1)));
+    {
+        std::lock_guard<std::mutex> lg(m_uploadMtx);
+        m_uploads[fileId] = UploadRecord{userId, challenge.receiverId, challenge.path,
+            challenge.sha256, challenge.size, challenge.contentType, nowSec()};
+    }
+    log("[http] 秒传 PoP 通过 uid=", userId, " file_id=", fileId, " sha256=", challenge.sha256);
+    res.set_content("{\"file_id\":\"" + fileId + "\",\"sha256\":\"" + challenge.sha256 +
+        "\",\"size\":" + std::to_string(challenge.size) + ",\"content_type\":\"" +
+        challenge.contentType + "\",\"instant\":true}", "application/json");
 }
 
 HttpFileServer::~HttpFileServer()
@@ -306,6 +383,10 @@ void HttpFileServer::gcLoop()
                 } else {
                     ++it;
                 }
+            }
+            for (auto it = m_challenges.begin(); it != m_challenges.end();) {
+                if (now - it->second.createdAt > 300) it = m_challenges.erase(it);
+                else ++it;
             }
         }
         std::error_code ec;

@@ -77,29 +77,36 @@ public:
     int userId() const { return m_userId.load(); }
     void setUserId(int id) { m_userId.store(id); }
 
+    // 是否已认证，userId > 0
     bool authenticated() const
     {
         return m_userId.load() > 0;
     }
 
+    // 获取认证会话 ID
     const std::string& authSessionId() const
     {
         return m_authSessionId;
     }
 
+    // 获取设备 ID
     const std::string& deviceId() const
     {
         return m_deviceId;
     }
 
+    // 获取对端地址
     const std::string& peerAddress() const { return m_peerAddress; }
+    // 获取应用会话 ID
     const crypto::Bytes& appSessionId() const { return m_appSessionId; }
 
+    // 获取 access token 过期时间
     std::int64_t accessExpiresAt() const
     {
         return m_accessExpiresAt.load();
     }
 
+    // 绑定认证信息
     void bindAuth(
         int userId,
         std::string authSessionId,
@@ -114,6 +121,7 @@ public:
         m_accessExpiresAt.store(expiresAt);
     }
 
+    // 关闭连接后写队列
     void closeAfterWrite();
     bool applicationSecure() const { return m_securityState == SecurityState::Established; }
 

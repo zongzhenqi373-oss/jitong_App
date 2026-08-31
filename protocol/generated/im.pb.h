@@ -5123,6 +5123,10 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED ChatInfoRq final : public ::google:
     kFileIdFieldNumber = 13,
     kContentTypeFieldNumber = 14,
     kSha256FieldNumber = 15,
+    kThumbnailFileIdFieldNumber = 16,
+    kThumbnailSha256FieldNumber = 20,
+    kLargeThumbnailFileIdFieldNumber = 21,
+    kLargeThumbnailSha256FieldNumber = 25,
     kMyidFieldNumber = 1,
     kFriidFieldNumber = 2,
     kTypeFieldNumber = 4,
@@ -5131,6 +5135,12 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED ChatInfoRq final : public ::google:
     kSeqFieldNumber = 10,
     kFileSizeFieldNumber = 12,
     kImageHeightFieldNumber = 7,
+    kThumbnailWidthFieldNumber = 17,
+    kThumbnailSizeFieldNumber = 19,
+    kThumbnailHeightFieldNumber = 18,
+    kLargeThumbnailWidthFieldNumber = 22,
+    kLargeThumbnailSizeFieldNumber = 24,
+    kLargeThumbnailHeightFieldNumber = 23,
   };
   // string msg = 3;
   void clear_msg() ;
@@ -5222,6 +5232,66 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED ChatInfoRq final : public ::google:
   ::std::string* PROTOBUF_NONNULL _internal_mutable_sha256();
 
   public:
+  // string thumbnail_file_id = 16;
+  void clear_thumbnail_file_id() ;
+  [[nodiscard]] const ::std::string& thumbnail_file_id() const;
+  template <typename Arg_ = const ::std::string&, typename... Args_>
+  void set_thumbnail_file_id(Arg_&& arg, Args_... args);
+  ::std::string* PROTOBUF_NONNULL mutable_thumbnail_file_id();
+  [[nodiscard]] ::std::string* PROTOBUF_NULLABLE release_thumbnail_file_id();
+  void set_allocated_thumbnail_file_id(::std::string* PROTOBUF_NULLABLE value);
+
+  private:
+  const ::std::string& _internal_thumbnail_file_id() const;
+  PROTOBUF_ALWAYS_INLINE void _internal_set_thumbnail_file_id(const ::std::string& value);
+  ::std::string* PROTOBUF_NONNULL _internal_mutable_thumbnail_file_id();
+
+  public:
+  // string thumbnail_sha256 = 20;
+  void clear_thumbnail_sha256() ;
+  [[nodiscard]] const ::std::string& thumbnail_sha256() const;
+  template <typename Arg_ = const ::std::string&, typename... Args_>
+  void set_thumbnail_sha256(Arg_&& arg, Args_... args);
+  ::std::string* PROTOBUF_NONNULL mutable_thumbnail_sha256();
+  [[nodiscard]] ::std::string* PROTOBUF_NULLABLE release_thumbnail_sha256();
+  void set_allocated_thumbnail_sha256(::std::string* PROTOBUF_NULLABLE value);
+
+  private:
+  const ::std::string& _internal_thumbnail_sha256() const;
+  PROTOBUF_ALWAYS_INLINE void _internal_set_thumbnail_sha256(const ::std::string& value);
+  ::std::string* PROTOBUF_NONNULL _internal_mutable_thumbnail_sha256();
+
+  public:
+  // string large_thumbnail_file_id = 21;
+  void clear_large_thumbnail_file_id() ;
+  [[nodiscard]] const ::std::string& large_thumbnail_file_id() const;
+  template <typename Arg_ = const ::std::string&, typename... Args_>
+  void set_large_thumbnail_file_id(Arg_&& arg, Args_... args);
+  ::std::string* PROTOBUF_NONNULL mutable_large_thumbnail_file_id();
+  [[nodiscard]] ::std::string* PROTOBUF_NULLABLE release_large_thumbnail_file_id();
+  void set_allocated_large_thumbnail_file_id(::std::string* PROTOBUF_NULLABLE value);
+
+  private:
+  const ::std::string& _internal_large_thumbnail_file_id() const;
+  PROTOBUF_ALWAYS_INLINE void _internal_set_large_thumbnail_file_id(const ::std::string& value);
+  ::std::string* PROTOBUF_NONNULL _internal_mutable_large_thumbnail_file_id();
+
+  public:
+  // string large_thumbnail_sha256 = 25;
+  void clear_large_thumbnail_sha256() ;
+  [[nodiscard]] const ::std::string& large_thumbnail_sha256() const;
+  template <typename Arg_ = const ::std::string&, typename... Args_>
+  void set_large_thumbnail_sha256(Arg_&& arg, Args_... args);
+  ::std::string* PROTOBUF_NONNULL mutable_large_thumbnail_sha256();
+  [[nodiscard]] ::std::string* PROTOBUF_NULLABLE release_large_thumbnail_sha256();
+  void set_allocated_large_thumbnail_sha256(::std::string* PROTOBUF_NULLABLE value);
+
+  private:
+  const ::std::string& _internal_large_thumbnail_sha256() const;
+  PROTOBUF_ALWAYS_INLINE void _internal_set_large_thumbnail_sha256(const ::std::string& value);
+  ::std::string* PROTOBUF_NONNULL _internal_mutable_large_thumbnail_sha256();
+
+  public:
   // int32 myid = 1;
   void clear_myid() ;
   [[nodiscard]] ::int32_t myid() const;
@@ -5302,12 +5372,72 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED ChatInfoRq final : public ::google:
   void _internal_set_image_height(::int32_t value);
 
   public:
+  // int32 thumbnail_width = 17;
+  void clear_thumbnail_width() ;
+  [[nodiscard]] ::int32_t thumbnail_width() const;
+  void set_thumbnail_width(::int32_t value);
+
+  private:
+  ::int32_t _internal_thumbnail_width() const;
+  void _internal_set_thumbnail_width(::int32_t value);
+
+  public:
+  // int64 thumbnail_size = 19;
+  void clear_thumbnail_size() ;
+  [[nodiscard]] ::int64_t thumbnail_size() const;
+  void set_thumbnail_size(::int64_t value);
+
+  private:
+  ::int64_t _internal_thumbnail_size() const;
+  void _internal_set_thumbnail_size(::int64_t value);
+
+  public:
+  // int32 thumbnail_height = 18;
+  void clear_thumbnail_height() ;
+  [[nodiscard]] ::int32_t thumbnail_height() const;
+  void set_thumbnail_height(::int32_t value);
+
+  private:
+  ::int32_t _internal_thumbnail_height() const;
+  void _internal_set_thumbnail_height(::int32_t value);
+
+  public:
+  // int32 large_thumbnail_width = 22;
+  void clear_large_thumbnail_width() ;
+  [[nodiscard]] ::int32_t large_thumbnail_width() const;
+  void set_large_thumbnail_width(::int32_t value);
+
+  private:
+  ::int32_t _internal_large_thumbnail_width() const;
+  void _internal_set_large_thumbnail_width(::int32_t value);
+
+  public:
+  // int64 large_thumbnail_size = 24;
+  void clear_large_thumbnail_size() ;
+  [[nodiscard]] ::int64_t large_thumbnail_size() const;
+  void set_large_thumbnail_size(::int64_t value);
+
+  private:
+  ::int64_t _internal_large_thumbnail_size() const;
+  void _internal_set_large_thumbnail_size(::int64_t value);
+
+  public:
+  // int32 large_thumbnail_height = 23;
+  void clear_large_thumbnail_height() ;
+  [[nodiscard]] ::int32_t large_thumbnail_height() const;
+  void set_large_thumbnail_height(::int32_t value);
+
+  private:
+  ::int32_t _internal_large_thumbnail_height() const;
+  void _internal_set_large_thumbnail_height(::int32_t value);
+
+  public:
   // @@protoc_insertion_point(class_scope:im.proto.ChatInfoRq)
  private:
   class _Internal;
   using ParseTableT_ =
-      ::google::protobuf::internal::TcParseTable<4, 14,
-                          0, 79,
+      ::google::protobuf::internal::TcParseTable<5, 24,
+                          0, 173,
                           2>;
   static constexpr ParseTableT_ InternalGenerateParseTable_(
       const ::google::protobuf::internal::ClassData* PROTOBUF_NONNULL class_data);
@@ -5341,6 +5471,10 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED ChatInfoRq final : public ::google:
     ::google::protobuf::internal::ArenaStringPtr file_id_;
     ::google::protobuf::internal::ArenaStringPtr content_type_;
     ::google::protobuf::internal::ArenaStringPtr sha256_;
+    ::google::protobuf::internal::ArenaStringPtr thumbnail_file_id_;
+    ::google::protobuf::internal::ArenaStringPtr thumbnail_sha256_;
+    ::google::protobuf::internal::ArenaStringPtr large_thumbnail_file_id_;
+    ::google::protobuf::internal::ArenaStringPtr large_thumbnail_sha256_;
     ::int32_t myid_;
     ::int32_t friid_;
     int type_;
@@ -5349,6 +5483,12 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED ChatInfoRq final : public ::google:
     ::int64_t seq_;
     ::int64_t file_size_;
     ::int32_t image_height_;
+    ::int32_t thumbnail_width_;
+    ::int64_t thumbnail_size_;
+    ::int32_t thumbnail_height_;
+    ::int32_t large_thumbnail_width_;
+    ::int64_t large_thumbnail_size_;
+    ::int32_t large_thumbnail_height_;
     PROTOBUF_TSAN_DECLARE_MEMBER
   };
   union { Impl_ _impl_; };
@@ -10605,7 +10745,7 @@ inline void FriendInfo::set_allocated_feeling(::std::string* PROTOBUF_NULLABLE v
 inline void ChatInfoRq::clear_myid() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.myid_ = 0;
-  ClearHasBit(_impl_._has_bits_[0], 0x00000040U);
+  ClearHasBit(_impl_._has_bits_[0], 0x00000400U);
 }
 inline ::int32_t ChatInfoRq::myid() const {
   // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.myid)
@@ -10613,7 +10753,7 @@ inline ::int32_t ChatInfoRq::myid() const {
 }
 inline void ChatInfoRq::set_myid(::int32_t value) {
   _internal_set_myid(value);
-  SetHasBit(_impl_._has_bits_[0], 0x00000040U);
+  SetHasBit(_impl_._has_bits_[0], 0x00000400U);
   // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.myid)
 }
 inline ::int32_t ChatInfoRq::_internal_myid() const {
@@ -10629,7 +10769,7 @@ inline void ChatInfoRq::_internal_set_myid(::int32_t value) {
 inline void ChatInfoRq::clear_friid() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.friid_ = 0;
-  ClearHasBit(_impl_._has_bits_[0], 0x00000080U);
+  ClearHasBit(_impl_._has_bits_[0], 0x00000800U);
 }
 inline ::int32_t ChatInfoRq::friid() const {
   // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.friid)
@@ -10637,7 +10777,7 @@ inline ::int32_t ChatInfoRq::friid() const {
 }
 inline void ChatInfoRq::set_friid(::int32_t value) {
   _internal_set_friid(value);
-  SetHasBit(_impl_._has_bits_[0], 0x00000080U);
+  SetHasBit(_impl_._has_bits_[0], 0x00000800U);
   // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.friid)
 }
 inline ::int32_t ChatInfoRq::_internal_friid() const {
@@ -10717,7 +10857,7 @@ inline void ChatInfoRq::set_allocated_msg(::std::string* PROTOBUF_NULLABLE value
 inline void ChatInfoRq::clear_type() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.type_ = 0;
-  ClearHasBit(_impl_._has_bits_[0], 0x00000100U);
+  ClearHasBit(_impl_._has_bits_[0], 0x00001000U);
 }
 inline ::im::proto::MsgType ChatInfoRq::type() const {
   // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.type)
@@ -10725,7 +10865,7 @@ inline ::im::proto::MsgType ChatInfoRq::type() const {
 }
 inline void ChatInfoRq::set_type(::im::proto::MsgType value) {
   _internal_set_type(value);
-  SetHasBit(_impl_._has_bits_[0], 0x00000100U);
+  SetHasBit(_impl_._has_bits_[0], 0x00001000U);
   // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.type)
 }
 inline ::im::proto::MsgType ChatInfoRq::_internal_type() const {
@@ -10741,7 +10881,7 @@ inline void ChatInfoRq::_internal_set_type(::im::proto::MsgType value) {
 inline void ChatInfoRq::clear_image_width() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.image_width_ = 0;
-  ClearHasBit(_impl_._has_bits_[0], 0x00000200U);
+  ClearHasBit(_impl_._has_bits_[0], 0x00002000U);
 }
 inline ::int32_t ChatInfoRq::image_width() const {
   // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.image_width)
@@ -10749,7 +10889,7 @@ inline ::int32_t ChatInfoRq::image_width() const {
 }
 inline void ChatInfoRq::set_image_width(::int32_t value) {
   _internal_set_image_width(value);
-  SetHasBit(_impl_._has_bits_[0], 0x00000200U);
+  SetHasBit(_impl_._has_bits_[0], 0x00002000U);
   // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.image_width)
 }
 inline ::int32_t ChatInfoRq::_internal_image_width() const {
@@ -10765,7 +10905,7 @@ inline void ChatInfoRq::_internal_set_image_width(::int32_t value) {
 inline void ChatInfoRq::clear_image_height() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.image_height_ = 0;
-  ClearHasBit(_impl_._has_bits_[0], 0x00002000U);
+  ClearHasBit(_impl_._has_bits_[0], 0x00020000U);
 }
 inline ::int32_t ChatInfoRq::image_height() const {
   // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.image_height)
@@ -10773,7 +10913,7 @@ inline ::int32_t ChatInfoRq::image_height() const {
 }
 inline void ChatInfoRq::set_image_height(::int32_t value) {
   _internal_set_image_height(value);
-  SetHasBit(_impl_._has_bits_[0], 0x00002000U);
+  SetHasBit(_impl_._has_bits_[0], 0x00020000U);
   // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.image_height)
 }
 inline ::int32_t ChatInfoRq::_internal_image_height() const {
@@ -10853,7 +10993,7 @@ inline void ChatInfoRq::set_allocated_msg_id(::std::string* PROTOBUF_NULLABLE va
 inline void ChatInfoRq::clear_ts() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.ts_ = ::int64_t{0};
-  ClearHasBit(_impl_._has_bits_[0], 0x00000400U);
+  ClearHasBit(_impl_._has_bits_[0], 0x00004000U);
 }
 inline ::int64_t ChatInfoRq::ts() const {
   // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.ts)
@@ -10861,7 +11001,7 @@ inline ::int64_t ChatInfoRq::ts() const {
 }
 inline void ChatInfoRq::set_ts(::int64_t value) {
   _internal_set_ts(value);
-  SetHasBit(_impl_._has_bits_[0], 0x00000400U);
+  SetHasBit(_impl_._has_bits_[0], 0x00004000U);
   // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.ts)
 }
 inline ::int64_t ChatInfoRq::_internal_ts() const {
@@ -10877,7 +11017,7 @@ inline void ChatInfoRq::_internal_set_ts(::int64_t value) {
 inline void ChatInfoRq::clear_seq() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.seq_ = ::int64_t{0};
-  ClearHasBit(_impl_._has_bits_[0], 0x00000800U);
+  ClearHasBit(_impl_._has_bits_[0], 0x00008000U);
 }
 inline ::int64_t ChatInfoRq::seq() const {
   // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.seq)
@@ -10885,7 +11025,7 @@ inline ::int64_t ChatInfoRq::seq() const {
 }
 inline void ChatInfoRq::set_seq(::int64_t value) {
   _internal_set_seq(value);
-  SetHasBit(_impl_._has_bits_[0], 0x00000800U);
+  SetHasBit(_impl_._has_bits_[0], 0x00008000U);
   // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.seq)
 }
 inline ::int64_t ChatInfoRq::_internal_seq() const {
@@ -10965,7 +11105,7 @@ inline void ChatInfoRq::set_allocated_file_name(::std::string* PROTOBUF_NULLABLE
 inline void ChatInfoRq::clear_file_size() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.file_size_ = ::int64_t{0};
-  ClearHasBit(_impl_._has_bits_[0], 0x00001000U);
+  ClearHasBit(_impl_._has_bits_[0], 0x00010000U);
 }
 inline ::int64_t ChatInfoRq::file_size() const {
   // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.file_size)
@@ -10973,7 +11113,7 @@ inline ::int64_t ChatInfoRq::file_size() const {
 }
 inline void ChatInfoRq::set_file_size(::int64_t value) {
   _internal_set_file_size(value);
-  SetHasBit(_impl_._has_bits_[0], 0x00001000U);
+  SetHasBit(_impl_._has_bits_[0], 0x00010000U);
   // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.file_size)
 }
 inline ::int64_t ChatInfoRq::_internal_file_size() const {
@@ -11175,6 +11315,406 @@ inline void ChatInfoRq::set_allocated_sha256(::std::string* PROTOBUF_NULLABLE va
     _impl_.sha256_.Set("", GetArena());
   }
   // @@protoc_insertion_point(field_set_allocated:im.proto.ChatInfoRq.sha256)
+}
+
+// string thumbnail_file_id = 16;
+inline void ChatInfoRq::clear_thumbnail_file_id() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.thumbnail_file_id_.ClearToEmpty();
+  ClearHasBit(_impl_._has_bits_[0], 0x00000040U);
+}
+inline const ::std::string& ChatInfoRq::thumbnail_file_id() const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.thumbnail_file_id)
+  return _internal_thumbnail_file_id();
+}
+template <typename Arg_, typename... Args_>
+PROTOBUF_ALWAYS_INLINE void ChatInfoRq::set_thumbnail_file_id(Arg_&& arg, Args_... args) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  SetHasBit(_impl_._has_bits_[0], 0x00000040U);
+  _impl_.thumbnail_file_id_.Set(static_cast<Arg_&&>(arg), args..., GetArena());
+  // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.thumbnail_file_id)
+}
+inline ::std::string* PROTOBUF_NONNULL ChatInfoRq::mutable_thumbnail_file_id()
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  SetHasBit(_impl_._has_bits_[0], 0x00000040U);
+  ::std::string* _s = _internal_mutable_thumbnail_file_id();
+  // @@protoc_insertion_point(field_mutable:im.proto.ChatInfoRq.thumbnail_file_id)
+  return _s;
+}
+inline const ::std::string& ChatInfoRq::_internal_thumbnail_file_id() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.thumbnail_file_id_.Get();
+}
+inline void ChatInfoRq::_internal_set_thumbnail_file_id(const ::std::string& value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.thumbnail_file_id_.Set(value, GetArena());
+}
+inline ::std::string* PROTOBUF_NONNULL ChatInfoRq::_internal_mutable_thumbnail_file_id() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  return _impl_.thumbnail_file_id_.Mutable( GetArena());
+}
+inline ::std::string* PROTOBUF_NULLABLE ChatInfoRq::release_thumbnail_file_id() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  // @@protoc_insertion_point(field_release:im.proto.ChatInfoRq.thumbnail_file_id)
+  if (!CheckHasBit(_impl_._has_bits_[0], 0x00000040U)) {
+    return nullptr;
+  }
+  ClearHasBit(_impl_._has_bits_[0], 0x00000040U);
+  auto* released = _impl_.thumbnail_file_id_.Release();
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
+    _impl_.thumbnail_file_id_.Set("", GetArena());
+  }
+  return released;
+}
+inline void ChatInfoRq::set_allocated_thumbnail_file_id(::std::string* PROTOBUF_NULLABLE value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (value != nullptr) {
+    SetHasBit(_impl_._has_bits_[0], 0x00000040U);
+  } else {
+    ClearHasBit(_impl_._has_bits_[0], 0x00000040U);
+  }
+  _impl_.thumbnail_file_id_.SetAllocated(value, GetArena());
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.thumbnail_file_id_.IsDefault()) {
+    _impl_.thumbnail_file_id_.Set("", GetArena());
+  }
+  // @@protoc_insertion_point(field_set_allocated:im.proto.ChatInfoRq.thumbnail_file_id)
+}
+
+// int32 thumbnail_width = 17;
+inline void ChatInfoRq::clear_thumbnail_width() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.thumbnail_width_ = 0;
+  ClearHasBit(_impl_._has_bits_[0], 0x00040000U);
+}
+inline ::int32_t ChatInfoRq::thumbnail_width() const {
+  // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.thumbnail_width)
+  return _internal_thumbnail_width();
+}
+inline void ChatInfoRq::set_thumbnail_width(::int32_t value) {
+  _internal_set_thumbnail_width(value);
+  SetHasBit(_impl_._has_bits_[0], 0x00040000U);
+  // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.thumbnail_width)
+}
+inline ::int32_t ChatInfoRq::_internal_thumbnail_width() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.thumbnail_width_;
+}
+inline void ChatInfoRq::_internal_set_thumbnail_width(::int32_t value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.thumbnail_width_ = value;
+}
+
+// int32 thumbnail_height = 18;
+inline void ChatInfoRq::clear_thumbnail_height() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.thumbnail_height_ = 0;
+  ClearHasBit(_impl_._has_bits_[0], 0x00100000U);
+}
+inline ::int32_t ChatInfoRq::thumbnail_height() const {
+  // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.thumbnail_height)
+  return _internal_thumbnail_height();
+}
+inline void ChatInfoRq::set_thumbnail_height(::int32_t value) {
+  _internal_set_thumbnail_height(value);
+  SetHasBit(_impl_._has_bits_[0], 0x00100000U);
+  // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.thumbnail_height)
+}
+inline ::int32_t ChatInfoRq::_internal_thumbnail_height() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.thumbnail_height_;
+}
+inline void ChatInfoRq::_internal_set_thumbnail_height(::int32_t value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.thumbnail_height_ = value;
+}
+
+// int64 thumbnail_size = 19;
+inline void ChatInfoRq::clear_thumbnail_size() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.thumbnail_size_ = ::int64_t{0};
+  ClearHasBit(_impl_._has_bits_[0], 0x00080000U);
+}
+inline ::int64_t ChatInfoRq::thumbnail_size() const {
+  // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.thumbnail_size)
+  return _internal_thumbnail_size();
+}
+inline void ChatInfoRq::set_thumbnail_size(::int64_t value) {
+  _internal_set_thumbnail_size(value);
+  SetHasBit(_impl_._has_bits_[0], 0x00080000U);
+  // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.thumbnail_size)
+}
+inline ::int64_t ChatInfoRq::_internal_thumbnail_size() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.thumbnail_size_;
+}
+inline void ChatInfoRq::_internal_set_thumbnail_size(::int64_t value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.thumbnail_size_ = value;
+}
+
+// string thumbnail_sha256 = 20;
+inline void ChatInfoRq::clear_thumbnail_sha256() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.thumbnail_sha256_.ClearToEmpty();
+  ClearHasBit(_impl_._has_bits_[0], 0x00000080U);
+}
+inline const ::std::string& ChatInfoRq::thumbnail_sha256() const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.thumbnail_sha256)
+  return _internal_thumbnail_sha256();
+}
+template <typename Arg_, typename... Args_>
+PROTOBUF_ALWAYS_INLINE void ChatInfoRq::set_thumbnail_sha256(Arg_&& arg, Args_... args) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  SetHasBit(_impl_._has_bits_[0], 0x00000080U);
+  _impl_.thumbnail_sha256_.Set(static_cast<Arg_&&>(arg), args..., GetArena());
+  // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.thumbnail_sha256)
+}
+inline ::std::string* PROTOBUF_NONNULL ChatInfoRq::mutable_thumbnail_sha256()
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  SetHasBit(_impl_._has_bits_[0], 0x00000080U);
+  ::std::string* _s = _internal_mutable_thumbnail_sha256();
+  // @@protoc_insertion_point(field_mutable:im.proto.ChatInfoRq.thumbnail_sha256)
+  return _s;
+}
+inline const ::std::string& ChatInfoRq::_internal_thumbnail_sha256() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.thumbnail_sha256_.Get();
+}
+inline void ChatInfoRq::_internal_set_thumbnail_sha256(const ::std::string& value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.thumbnail_sha256_.Set(value, GetArena());
+}
+inline ::std::string* PROTOBUF_NONNULL ChatInfoRq::_internal_mutable_thumbnail_sha256() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  return _impl_.thumbnail_sha256_.Mutable( GetArena());
+}
+inline ::std::string* PROTOBUF_NULLABLE ChatInfoRq::release_thumbnail_sha256() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  // @@protoc_insertion_point(field_release:im.proto.ChatInfoRq.thumbnail_sha256)
+  if (!CheckHasBit(_impl_._has_bits_[0], 0x00000080U)) {
+    return nullptr;
+  }
+  ClearHasBit(_impl_._has_bits_[0], 0x00000080U);
+  auto* released = _impl_.thumbnail_sha256_.Release();
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
+    _impl_.thumbnail_sha256_.Set("", GetArena());
+  }
+  return released;
+}
+inline void ChatInfoRq::set_allocated_thumbnail_sha256(::std::string* PROTOBUF_NULLABLE value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (value != nullptr) {
+    SetHasBit(_impl_._has_bits_[0], 0x00000080U);
+  } else {
+    ClearHasBit(_impl_._has_bits_[0], 0x00000080U);
+  }
+  _impl_.thumbnail_sha256_.SetAllocated(value, GetArena());
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.thumbnail_sha256_.IsDefault()) {
+    _impl_.thumbnail_sha256_.Set("", GetArena());
+  }
+  // @@protoc_insertion_point(field_set_allocated:im.proto.ChatInfoRq.thumbnail_sha256)
+}
+
+// string large_thumbnail_file_id = 21;
+inline void ChatInfoRq::clear_large_thumbnail_file_id() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.large_thumbnail_file_id_.ClearToEmpty();
+  ClearHasBit(_impl_._has_bits_[0], 0x00000100U);
+}
+inline const ::std::string& ChatInfoRq::large_thumbnail_file_id() const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.large_thumbnail_file_id)
+  return _internal_large_thumbnail_file_id();
+}
+template <typename Arg_, typename... Args_>
+PROTOBUF_ALWAYS_INLINE void ChatInfoRq::set_large_thumbnail_file_id(Arg_&& arg, Args_... args) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  SetHasBit(_impl_._has_bits_[0], 0x00000100U);
+  _impl_.large_thumbnail_file_id_.Set(static_cast<Arg_&&>(arg), args..., GetArena());
+  // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.large_thumbnail_file_id)
+}
+inline ::std::string* PROTOBUF_NONNULL ChatInfoRq::mutable_large_thumbnail_file_id()
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  SetHasBit(_impl_._has_bits_[0], 0x00000100U);
+  ::std::string* _s = _internal_mutable_large_thumbnail_file_id();
+  // @@protoc_insertion_point(field_mutable:im.proto.ChatInfoRq.large_thumbnail_file_id)
+  return _s;
+}
+inline const ::std::string& ChatInfoRq::_internal_large_thumbnail_file_id() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.large_thumbnail_file_id_.Get();
+}
+inline void ChatInfoRq::_internal_set_large_thumbnail_file_id(const ::std::string& value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.large_thumbnail_file_id_.Set(value, GetArena());
+}
+inline ::std::string* PROTOBUF_NONNULL ChatInfoRq::_internal_mutable_large_thumbnail_file_id() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  return _impl_.large_thumbnail_file_id_.Mutable( GetArena());
+}
+inline ::std::string* PROTOBUF_NULLABLE ChatInfoRq::release_large_thumbnail_file_id() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  // @@protoc_insertion_point(field_release:im.proto.ChatInfoRq.large_thumbnail_file_id)
+  if (!CheckHasBit(_impl_._has_bits_[0], 0x00000100U)) {
+    return nullptr;
+  }
+  ClearHasBit(_impl_._has_bits_[0], 0x00000100U);
+  auto* released = _impl_.large_thumbnail_file_id_.Release();
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
+    _impl_.large_thumbnail_file_id_.Set("", GetArena());
+  }
+  return released;
+}
+inline void ChatInfoRq::set_allocated_large_thumbnail_file_id(::std::string* PROTOBUF_NULLABLE value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (value != nullptr) {
+    SetHasBit(_impl_._has_bits_[0], 0x00000100U);
+  } else {
+    ClearHasBit(_impl_._has_bits_[0], 0x00000100U);
+  }
+  _impl_.large_thumbnail_file_id_.SetAllocated(value, GetArena());
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.large_thumbnail_file_id_.IsDefault()) {
+    _impl_.large_thumbnail_file_id_.Set("", GetArena());
+  }
+  // @@protoc_insertion_point(field_set_allocated:im.proto.ChatInfoRq.large_thumbnail_file_id)
+}
+
+// int32 large_thumbnail_width = 22;
+inline void ChatInfoRq::clear_large_thumbnail_width() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.large_thumbnail_width_ = 0;
+  ClearHasBit(_impl_._has_bits_[0], 0x00200000U);
+}
+inline ::int32_t ChatInfoRq::large_thumbnail_width() const {
+  // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.large_thumbnail_width)
+  return _internal_large_thumbnail_width();
+}
+inline void ChatInfoRq::set_large_thumbnail_width(::int32_t value) {
+  _internal_set_large_thumbnail_width(value);
+  SetHasBit(_impl_._has_bits_[0], 0x00200000U);
+  // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.large_thumbnail_width)
+}
+inline ::int32_t ChatInfoRq::_internal_large_thumbnail_width() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.large_thumbnail_width_;
+}
+inline void ChatInfoRq::_internal_set_large_thumbnail_width(::int32_t value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.large_thumbnail_width_ = value;
+}
+
+// int32 large_thumbnail_height = 23;
+inline void ChatInfoRq::clear_large_thumbnail_height() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.large_thumbnail_height_ = 0;
+  ClearHasBit(_impl_._has_bits_[0], 0x00800000U);
+}
+inline ::int32_t ChatInfoRq::large_thumbnail_height() const {
+  // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.large_thumbnail_height)
+  return _internal_large_thumbnail_height();
+}
+inline void ChatInfoRq::set_large_thumbnail_height(::int32_t value) {
+  _internal_set_large_thumbnail_height(value);
+  SetHasBit(_impl_._has_bits_[0], 0x00800000U);
+  // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.large_thumbnail_height)
+}
+inline ::int32_t ChatInfoRq::_internal_large_thumbnail_height() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.large_thumbnail_height_;
+}
+inline void ChatInfoRq::_internal_set_large_thumbnail_height(::int32_t value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.large_thumbnail_height_ = value;
+}
+
+// int64 large_thumbnail_size = 24;
+inline void ChatInfoRq::clear_large_thumbnail_size() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.large_thumbnail_size_ = ::int64_t{0};
+  ClearHasBit(_impl_._has_bits_[0], 0x00400000U);
+}
+inline ::int64_t ChatInfoRq::large_thumbnail_size() const {
+  // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.large_thumbnail_size)
+  return _internal_large_thumbnail_size();
+}
+inline void ChatInfoRq::set_large_thumbnail_size(::int64_t value) {
+  _internal_set_large_thumbnail_size(value);
+  SetHasBit(_impl_._has_bits_[0], 0x00400000U);
+  // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.large_thumbnail_size)
+}
+inline ::int64_t ChatInfoRq::_internal_large_thumbnail_size() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.large_thumbnail_size_;
+}
+inline void ChatInfoRq::_internal_set_large_thumbnail_size(::int64_t value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.large_thumbnail_size_ = value;
+}
+
+// string large_thumbnail_sha256 = 25;
+inline void ChatInfoRq::clear_large_thumbnail_sha256() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.large_thumbnail_sha256_.ClearToEmpty();
+  ClearHasBit(_impl_._has_bits_[0], 0x00000200U);
+}
+inline const ::std::string& ChatInfoRq::large_thumbnail_sha256() const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:im.proto.ChatInfoRq.large_thumbnail_sha256)
+  return _internal_large_thumbnail_sha256();
+}
+template <typename Arg_, typename... Args_>
+PROTOBUF_ALWAYS_INLINE void ChatInfoRq::set_large_thumbnail_sha256(Arg_&& arg, Args_... args) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  SetHasBit(_impl_._has_bits_[0], 0x00000200U);
+  _impl_.large_thumbnail_sha256_.Set(static_cast<Arg_&&>(arg), args..., GetArena());
+  // @@protoc_insertion_point(field_set:im.proto.ChatInfoRq.large_thumbnail_sha256)
+}
+inline ::std::string* PROTOBUF_NONNULL ChatInfoRq::mutable_large_thumbnail_sha256()
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  SetHasBit(_impl_._has_bits_[0], 0x00000200U);
+  ::std::string* _s = _internal_mutable_large_thumbnail_sha256();
+  // @@protoc_insertion_point(field_mutable:im.proto.ChatInfoRq.large_thumbnail_sha256)
+  return _s;
+}
+inline const ::std::string& ChatInfoRq::_internal_large_thumbnail_sha256() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.large_thumbnail_sha256_.Get();
+}
+inline void ChatInfoRq::_internal_set_large_thumbnail_sha256(const ::std::string& value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.large_thumbnail_sha256_.Set(value, GetArena());
+}
+inline ::std::string* PROTOBUF_NONNULL ChatInfoRq::_internal_mutable_large_thumbnail_sha256() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  return _impl_.large_thumbnail_sha256_.Mutable( GetArena());
+}
+inline ::std::string* PROTOBUF_NULLABLE ChatInfoRq::release_large_thumbnail_sha256() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  // @@protoc_insertion_point(field_release:im.proto.ChatInfoRq.large_thumbnail_sha256)
+  if (!CheckHasBit(_impl_._has_bits_[0], 0x00000200U)) {
+    return nullptr;
+  }
+  ClearHasBit(_impl_._has_bits_[0], 0x00000200U);
+  auto* released = _impl_.large_thumbnail_sha256_.Release();
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
+    _impl_.large_thumbnail_sha256_.Set("", GetArena());
+  }
+  return released;
+}
+inline void ChatInfoRq::set_allocated_large_thumbnail_sha256(::std::string* PROTOBUF_NULLABLE value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (value != nullptr) {
+    SetHasBit(_impl_._has_bits_[0], 0x00000200U);
+  } else {
+    ClearHasBit(_impl_._has_bits_[0], 0x00000200U);
+  }
+  _impl_.large_thumbnail_sha256_.SetAllocated(value, GetArena());
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.large_thumbnail_sha256_.IsDefault()) {
+    _impl_.large_thumbnail_sha256_.Set("", GetArena());
+  }
+  // @@protoc_insertion_point(field_set_allocated:im.proto.ChatInfoRq.large_thumbnail_sha256)
 }
 
 // -------------------------------------------------------------------

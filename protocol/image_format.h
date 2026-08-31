@@ -29,6 +29,10 @@ inline std::string imageExtForBytes(const std::string& bytes)
     if (n >= 12 && p[0] == 0x52 && p[1] == 0x49 && p[2] == 0x46 && p[3] == 0x46 &&
         p[8] == 0x57 && p[9] == 0x45 && p[10] == 0x42 && p[11] == 0x50)
         return ".webp";
+    // AVIF/HEIF family: ISO-BMFF box starts with size + "ftyp", followed by brand avif/avis.
+    if (n >= 12 && p[4] == 'f' && p[5] == 't' && p[6] == 'y' && p[7] == 'p' &&
+        ((p[8] == 'a' && p[9] == 'v' && p[10] == 'i' && (p[11] == 'f' || p[11] == 's'))))
+        return ".avif";
 
     return ".bin";
 }

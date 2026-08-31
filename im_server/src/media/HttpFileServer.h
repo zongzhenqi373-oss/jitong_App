@@ -47,6 +47,8 @@ public:
 private:
     bool authenticate(const httplib::Request& req, int& outUserId, std::string& outDeviceId) const;
     void handleUpload(const httplib::Request& req, httplib::Response& res, const httplib::ContentReader& reader);
+    void handlePreflight(const httplib::Request& req, httplib::Response& res);
+    void handleProof(const httplib::Request& req, httplib::Response& res);
     void handleDownload(const httplib::Request& req, httplib::Response& res);
     void gcLoop();
 
@@ -60,6 +62,18 @@ private:
     std::atomic<bool> m_running{false};
     std::mutex m_uploadMtx;
     std::unordered_map<std::string, UploadRecord> m_uploads;
+    struct ProofChallenge {
+        int uploaderId = 0;
+        int receiverId = 0;
+        std::string path;
+        std::string sha256;
+        std::int64_t size = 0;
+        std::string contentType;
+        std::int64_t offset = 0;
+        std::int64_t length = 0;
+        std::int64_t createdAt = 0;
+    };
+    std::unordered_map<std::string, ProofChallenge> m_challenges;
 };
 
 } // namespace imsrv

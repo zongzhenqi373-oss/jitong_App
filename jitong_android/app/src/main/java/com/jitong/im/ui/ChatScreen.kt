@@ -1,6 +1,5 @@
 package com.jitong.im.ui
 
-import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -44,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -53,7 +53,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -61,14 +60,18 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jitong.im.util.ImageCodec
 import com.jitong.im.ui.theme.JitongBlue
 import com.jitong.im.ui.theme.PageBackground
 import com.jitong.im.ui.theme.PaleBlue
 import com.jitong.im.ui.theme.SecondaryText
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,8 +85,20 @@ fun ChatScreen(vm: MainViewModel) {
     // LazyColumn 使用反向数据 + reverseLayout，让最新消息天然锚定输入框上方。
     // 键盘改变可视高度时从列表顶部收缩，不会把末条强制对齐到消息区顶部。
     val displayMessages = conv.asReversed()
+    var viewingImageId by remember { mutableStateOf<String?>(null) }
 
     val listState = rememberLazyListState()
+
+    // 只预取屏幕可见消息的大缩略图；离屏消息仍只保留默认小缩略图。
+    LaunchedEffect(listState, displayMessages) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.map { it.index } }
+            .distinctUntilChanged()
+            .collect { indices ->
+                indices.mapNotNull(displayMessages::getOrNull)
+                    .filter { it.kind == MsgKind.IMAGE }
+                    .forEach(vm::prefetchLargeThumbnail)
+            }
+    }
     val density = LocalDensity.current
     val imeBottom = WindowInsets.ime.getBottom(density)
     // 仅当"最新一条"变化（新消息到底部）时才滚到底；上拉加载更早消息不改变末条 id，不触发滚动，
@@ -155,7 +170,12 @@ fun ChatScreen(vm: MainViewModel) {
             scope.launch {
                 val compressed = ImageCodec.loadAndCompress(context, uri)
                 if (compressed != null) {
-                    vm.sendImage(compressed.bytes, compressed.w, compressed.h)
+                    vm.sendImage(
+                        compressed.bytes, compressed.w, compressed.h,
+                        compressed.thumbnailBytes, compressed.thumbnailW, compressed.thumbnailH,
+                        compressed.largeThumbnailBytes,
+                        compressed.largeThumbnailW, compressed.largeThumbnailH,
+                    )
                 } else {
                     vm.notify("图片读取失败")
                 }
@@ -241,7 +261,15 @@ fun ChatScreen(vm: MainViewModel) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(displayMessages, key = { it.msgId }) { msg ->
-                    MessageRow(msg, peerNick = p.nick, myNick = vm.myNick.collectAsStateWithLifecycle().value, myId = vm.myId, vm = vm)
+                    MessageRow(msg, peerNick = p.nick,
+                        myNick = vm.myNick.collectAsStateWithLifecycle().value,
+                        myId = vm.myId, vm = vm,
+                        onImageClick = {
+                            viewingImageId = msg.msgId
+                            val hasOriginal = msg.imageBytes?.isNotEmpty() == true ||
+                                msg.localPath?.let { java.io.File(it).isFile } == true
+                            if (!hasOriginal) vm.downloadFile(msg)
+                        })
                 }
             }
 
@@ -366,6 +394,11 @@ fun ChatScreen(vm: MainViewModel) {
             }
         }
     }
+    viewingImageId?.let { id ->
+        conv.firstOrNull { it.msgId == id }?.let { current ->
+            ImageViewer(current, onDismiss = { viewingImageId = null })
+        }
+    }
 }
 
 @Composable
@@ -388,7 +421,8 @@ private fun PanelItem(label: String, onClick: () -> Unit) {
 
 /** 一条消息：头像 + 气泡（自己靠右绿色，对方靠左白色） */
 @Composable
-private fun MessageRow(msg: ChatMessage, peerNick: String, myNick: String, myId: Int, vm: MainViewModel) {
+private fun MessageRow(msg: ChatMessage, peerNick: String, myNick: String, myId: Int,
+                       vm: MainViewModel, onImageClick: () -> Unit) {
     val context = LocalContext.current
     Row(
         Modifier.fillMaxWidth(),
@@ -413,7 +447,7 @@ private fun MessageRow(msg: ChatMessage, peerNick: String, myNick: String, myId:
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 ) { Text(msg.text) }
 
-                MsgKind.IMAGE -> ImageBubble(msg)
+                MsgKind.IMAGE -> ImageBubble(msg, onOpenOriginal = onImageClick)
 
                 // 文件消息气泡：图标 + 名称 + 大小 + 进度/下载/打开
                 MsgKind.FILE -> FileBubble(msg, onDownload = { vm.downloadFile(msg) }, onOpen = {
@@ -439,6 +473,7 @@ private fun MessageRow(msg: ChatMessage, peerNick: String, myNick: String, myId:
             Avatar(id = myId, nick = myNick, size = 40.dp)
         }
     }
+
 }
 
 /**
@@ -543,39 +578,106 @@ private fun openFile(context: android.content.Context, path: String, name: Strin
 }
 
 @Composable
-private fun ImageBubble(msg: ChatMessage) {
-    if (!msg.localPath.isNullOrBlank()) {
-        val ratio = if (msg.imgW > 0 && msg.imgH > 0) msg.imgW.toFloat() / msg.imgH else 1f
-        AsyncImage(
-            model = java.io.File(msg.localPath),
-            contentDescription = "图片消息",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.widthIn(max = 220.dp)
-                .aspectRatio(ratio.coerceIn(0.4f, 2.5f))
-                .clip(RoundedCornerShape(8.dp)),
-        )
-        return
-    }
-    val bitmap = remember(msg.msgId) {
-        msg.imageBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
-    }
-    if (bitmap == null) {
-        Text("[图片无法显示]", color = Color.Gray, fontSize = 12.sp)
-        return
+private fun ImageBubble(msg: ChatMessage, onOpenOriginal: () -> Unit) {
+    val originalPath = msg.localPath?.takeIf { java.io.File(it).isFile }
+    val fallbackPath = msg.largeThumbnailPath?.takeIf { java.io.File(it).isFile }
+        ?: msg.thumbnailPath?.takeIf { java.io.File(it).isFile }
+    // Android/Coil 的系统解码器在部分设备上不能解码 lossless AVIF。
+    // 与编码端复用同一个 libavif 解码器，并在 IO 线程完成，避免阻塞 Compose 主线程。
+    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(
+        initialValue = null,
+        key1 = msg.msgId,
+        key2 = originalPath ?: fallbackPath,
+    ) {
+        value = withContext(Dispatchers.IO) {
+            val bytes = originalPath?.let { path ->
+                runCatching { java.io.File(path).readBytes() }.getOrNull()
+            } ?: msg.imageBytes?.takeIf { it.isNotEmpty() }
+                ?: fallbackPath?.let { path ->
+                    runCatching { java.io.File(path).readBytes() }.getOrNull()
+                }
+            val source = when {
+                originalPath != null -> "原图(localPath)"
+                msg.imageBytes?.isNotEmpty() == true -> "内存原图(imageBytes)"
+                fallbackPath?.contains("/large/") == true -> "大缩略图(large)"
+                fallbackPath?.contains("/thumb/") == true -> "小缩略图(thumb)"
+                else -> "无本地图片"
+            }
+            android.util.Log.d("IM_IMG", "气泡图片 msgId=${msg.msgId} 来源=$source bytes=${bytes?.size ?: 0}")
+            bytes?.let(ImageCodec::decodeForDisplay)?.asImageBitmap()
+        }
     }
     val ratio = if (msg.imgW > 0 && msg.imgH > 0) {
         msg.imgW.toFloat() / msg.imgH.toFloat()
-    } else {
-        bitmap.width.toFloat() / bitmap.height.toFloat()
-    }
-    Image(
-        bitmap = bitmap,
-        contentDescription = "图片消息",
-        contentScale = ContentScale.Crop,
+    } else 1f
+    // 从元数据到达起就固定气泡几何尺寸；缩略图/原图只替换内容，不参与测量，消除抖动。
+    Box(
         modifier = Modifier
-            .widthIn(max = 220.dp)
+            .width(220.dp)
             .aspectRatio(ratio.coerceIn(0.4f, 2.5f))
             .clip(RoundedCornerShape(8.dp))
-            .background(Color.White),
-    )
+            .background(Color(0xFFE8EBF0))
+            .clickable { onOpenOriginal() },
+        contentAlignment = Alignment.Center,
+    ) {
+        val rendered = bitmap
+        if (rendered != null) {
+            Image(
+                bitmap = rendered,
+                contentDescription = "图片消息",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+        }
+    }
+}
+
+/** 全屏查看：本地原图 > 大缩略图 > 小缩略图 > 等比占位；外层会并行触发原图下载。 */
+@Composable
+private fun ImageViewer(msg: ChatMessage, onDismiss: () -> Unit) {
+    val originalPath = msg.localPath?.takeIf { java.io.File(it).isFile }
+    val fallbackPath = msg.largeThumbnailPath?.takeIf { java.io.File(it).isFile }
+        ?: msg.thumbnailPath?.takeIf { java.io.File(it).isFile }
+    val hasOriginal = originalPath != null || msg.imageBytes?.isNotEmpty() == true
+    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(
+        null, msg.msgId, originalPath ?: fallbackPath, hasOriginal,
+    ) {
+        value = withContext(Dispatchers.IO) {
+            val bytes = originalPath?.let { path ->
+                runCatching { java.io.File(path).readBytes() }.getOrNull()
+            } ?: msg.imageBytes?.takeIf { it.isNotEmpty() }
+                ?: fallbackPath?.let { path ->
+                    runCatching { java.io.File(path).readBytes() }.getOrNull()
+                }
+            bytes?.let(ImageCodec::decodeForDisplay)?.asImageBitmap()
+        }
+    }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            Modifier.fillMaxSize().background(Color.Black).clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center,
+        ) {
+            bitmap?.let {
+                Image(it, "查看原图", contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize())
+            } ?: CircularProgressIndicator(color = Color.White)
+            if (!hasOriginal && bitmap != null) {
+                Text(
+                    text = "原图加载中…",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 36.dp)
+                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                )
+            }
+        }
+    }
 }

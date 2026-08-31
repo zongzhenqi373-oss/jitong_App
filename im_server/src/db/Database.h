@@ -59,10 +59,28 @@ struct StoredMessage {
     std::int64_t fileSize = 0;   // type=2：文件字节数
     std::string contentType;
     std::string sha256;
+    std::string thumbnailFileId;
+    std::string thumbnailPath;
+    std::int64_t thumbnailSize = 0;
+    std::string thumbnailSha256;
+    int thumbnailW = 0;
+    int thumbnailH = 0;
+    std::string largeThumbnailFileId;
+    std::string largeThumbnailPath;
+    std::int64_t largeThumbnailSize = 0;
+    std::string largeThumbnailSha256;
+    int largeThumbnailW = 0;
+    int largeThumbnailH = 0;
 };
 
 class Database {
 public:
+    struct MediaObject {
+        std::string path;
+        std::string sha256;
+        std::int64_t size = 0;
+        std::string contentType;
+    };
     Database() = default;
     ~Database();
 
@@ -122,6 +140,7 @@ public:
 
     //按文件id取单条富媒体消息；不存在返回 false
     bool getMessageByFileId(const std::string& fileId, StoredMessage& out);
+    bool findMediaObject(const std::string& sha256, std::int64_t size, MediaObject& out);
 
     // ---------------- 认证 ----------------
     struct AuthSessionRecord {

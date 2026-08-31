@@ -1,14 +1,17 @@
 #include "session/Presence.h"
 #include "session/Session.h"
 
+// Presence 类实现，管理用户在线状态及会话信息
 namespace imsrv {
 
+// 上线
 void Presence::online(int userId, const std::shared_ptr<Session>& s)
 {
     std::lock_guard<std::mutex> lock(m_mtx);
     m_map[userId] = Entry{s, std::time(nullptr)};
 }
 
+// 替换
 std::shared_ptr<Session> Presence::replace(int userId, const std::shared_ptr<Session>& s)
 {
     std::lock_guard<std::mutex> lock(m_mtx);
@@ -18,6 +21,7 @@ std::shared_ptr<Session> Presence::replace(int userId, const std::shared_ptr<Ses
     return old;
 }
 
+// 下线
 void Presence::offline(int userId, const std::shared_ptr<Session>& s)
 {
     std::lock_guard<std::mutex> lock(m_mtx);
@@ -29,6 +33,7 @@ void Presence::offline(int userId, const std::shared_ptr<Session>& s)
     }
 }
 
+// 获取在线会话
 std::shared_ptr<Session> Presence::get(int userId)
 {
     std::lock_guard<std::mutex> lock(m_mtx);
@@ -37,6 +42,7 @@ std::shared_ptr<Session> Presence::get(int userId)
     return it->second.sess.lock();
 }
 
+// 更新最后活跃时间
 void Presence::touch(int userId)
 {
     std::lock_guard<std::mutex> lock(m_mtx);
@@ -44,6 +50,7 @@ void Presence::touch(int userId)
     if (it != m_map.end()) it->second.lastActive = std::time(nullptr);
 }
 
+// 扫描超时的会话
 std::vector<std::pair<int, std::shared_ptr<Session>>> Presence::scanStale(int timeoutSec)
 {
     std::vector<std::pair<int, std::shared_ptr<Session>>> stale;

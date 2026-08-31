@@ -3243,11 +3243,11 @@ constexpr ChatInfoRq::ParseTableT_ ChatInfoRq::InternalGenerateParseTable_(const
     {
       PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_._has_bits_),
       0, // no _extensions_
-      15, 120,  // max_field_number, fast_idx_mask
+      25, 248,  // max_field_number, fast_idx_mask
       offsetof(ParseTableT_, field_lookup_table),
-      4294934544,  // skipmap
+      4261412880,  // skipmap
       offsetof(ParseTableT_, field_entries),
-      14,  // num_field_entries
+      24,  // num_field_entries
       0,  // num_aux_entries
       offsetof(ParseTableT_, field_names),  // no aux_entries
       class_data,
@@ -3259,49 +3259,49 @@ constexpr ChatInfoRq::ParseTableT_ ChatInfoRq::InternalGenerateParseTable_(const
     }, {{
       {::_pbi::TcParser::MiniParse, {}},
       // int32 myid = 1;
-      {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(ChatInfoRq, _impl_.myid_), 6>(),
-       {8, 6, 0,
+      {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(ChatInfoRq, _impl_.myid_), 10>(),
+       {8, 10, 0,
         PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.myid_)}},
       // int32 friid = 2;
-      {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(ChatInfoRq, _impl_.friid_), 7>(),
-       {16, 7, 0,
+      {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(ChatInfoRq, _impl_.friid_), 11>(),
+       {16, 11, 0,
         PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.friid_)}},
       // string msg = 3;
       {::_pbi::TcParser::FastUS1,
        {26, 0, 0,
         PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.msg_)}},
       // .im.proto.MsgType type = 4;
-      {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(ChatInfoRq, _impl_.type_), 8>(),
-       {32, 8, 0,
+      {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(ChatInfoRq, _impl_.type_), 12>(),
+       {32, 12, 0,
         PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.type_)}},
       {::_pbi::TcParser::MiniParse, {}},
       // int32 image_width = 6;
-      {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(ChatInfoRq, _impl_.image_width_), 9>(),
-       {48, 9, 0,
+      {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(ChatInfoRq, _impl_.image_width_), 13>(),
+       {48, 13, 0,
         PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.image_width_)}},
       // int32 image_height = 7;
-      {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(ChatInfoRq, _impl_.image_height_), 13>(),
-       {56, 13, 0,
+      {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(ChatInfoRq, _impl_.image_height_), 17>(),
+       {56, 17, 0,
         PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.image_height_)}},
       // string msg_id = 8;
       {::_pbi::TcParser::FastUS1,
        {66, 1, 0,
         PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.msg_id_)}},
       // int64 ts = 9;
-      {::_pbi::TcParser::SingularVarintNoZag1<::uint64_t, offsetof(ChatInfoRq, _impl_.ts_), 10>(),
-       {72, 10, 0,
+      {::_pbi::TcParser::SingularVarintNoZag1<::uint64_t, offsetof(ChatInfoRq, _impl_.ts_), 14>(),
+       {72, 14, 0,
         PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.ts_)}},
       // int64 seq = 10;
-      {::_pbi::TcParser::SingularVarintNoZag1<::uint64_t, offsetof(ChatInfoRq, _impl_.seq_), 11>(),
-       {80, 11, 0,
+      {::_pbi::TcParser::SingularVarintNoZag1<::uint64_t, offsetof(ChatInfoRq, _impl_.seq_), 15>(),
+       {80, 15, 0,
         PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.seq_)}},
       // string file_name = 11;
       {::_pbi::TcParser::FastUS1,
        {90, 2, 0,
         PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.file_name_)}},
       // int64 file_size = 12;
-      {::_pbi::TcParser::SingularVarintNoZag1<::uint64_t, offsetof(ChatInfoRq, _impl_.file_size_), 12>(),
-       {96, 12, 0,
+      {::_pbi::TcParser::SingularVarintNoZag1<::uint64_t, offsetof(ChatInfoRq, _impl_.file_size_), 16>(),
+       {96, 16, 0,
         PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.file_size_)}},
       // string file_id = 13;
       {::_pbi::TcParser::FastUS1,
@@ -3315,41 +3315,107 @@ constexpr ChatInfoRq::ParseTableT_ ChatInfoRq::InternalGenerateParseTable_(const
       {::_pbi::TcParser::FastUS1,
        {122, 5, 0,
         PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.sha256_)}},
+      // string thumbnail_file_id = 16;
+      {::_pbi::TcParser::FastUS2,
+       {386, 6, 0,
+        PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.thumbnail_file_id_)}},
+      // int32 thumbnail_width = 17;
+      {::_pbi::TcParser::FastV32S2,
+       {392, 18, 0,
+        PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.thumbnail_width_)}},
+      // int32 thumbnail_height = 18;
+      {::_pbi::TcParser::FastV32S2,
+       {400, 20, 0,
+        PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.thumbnail_height_)}},
+      // int64 thumbnail_size = 19;
+      {::_pbi::TcParser::FastV64S2,
+       {408, 19, 0,
+        PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.thumbnail_size_)}},
+      // string thumbnail_sha256 = 20;
+      {::_pbi::TcParser::FastUS2,
+       {418, 7, 0,
+        PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.thumbnail_sha256_)}},
+      // string large_thumbnail_file_id = 21;
+      {::_pbi::TcParser::FastUS2,
+       {426, 8, 0,
+        PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.large_thumbnail_file_id_)}},
+      // int32 large_thumbnail_width = 22;
+      {::_pbi::TcParser::FastV32S2,
+       {432, 21, 0,
+        PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.large_thumbnail_width_)}},
+      // int32 large_thumbnail_height = 23;
+      {::_pbi::TcParser::FastV32S2,
+       {440, 23, 0,
+        PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.large_thumbnail_height_)}},
+      // int64 large_thumbnail_size = 24;
+      {::_pbi::TcParser::FastV64S2,
+       {448, 22, 0,
+        PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.large_thumbnail_size_)}},
+      // string large_thumbnail_sha256 = 25;
+      {::_pbi::TcParser::FastUS2,
+       {458, 9, 0,
+        PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.large_thumbnail_sha256_)}},
+      {::_pbi::TcParser::MiniParse, {}},
+      {::_pbi::TcParser::MiniParse, {}},
+      {::_pbi::TcParser::MiniParse, {}},
+      {::_pbi::TcParser::MiniParse, {}},
+      {::_pbi::TcParser::MiniParse, {}},
+      {::_pbi::TcParser::MiniParse, {}},
     }}, {{
       65535, 65535
     }}, {{
       // int32 myid = 1;
-      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.myid_), _Internal::kHasBitsOffset + 6, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.myid_), _Internal::kHasBitsOffset + 10, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
       // int32 friid = 2;
-      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.friid_), _Internal::kHasBitsOffset + 7, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.friid_), _Internal::kHasBitsOffset + 11, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
       // string msg = 3;
       {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.msg_), _Internal::kHasBitsOffset + 0, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
       // .im.proto.MsgType type = 4;
-      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.type_), _Internal::kHasBitsOffset + 8, 0, (0 | ::_fl::kFcOptional | ::_fl::kOpenEnum)},
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.type_), _Internal::kHasBitsOffset + 12, 0, (0 | ::_fl::kFcOptional | ::_fl::kOpenEnum)},
       // int32 image_width = 6;
-      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.image_width_), _Internal::kHasBitsOffset + 9, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.image_width_), _Internal::kHasBitsOffset + 13, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
       // int32 image_height = 7;
-      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.image_height_), _Internal::kHasBitsOffset + 13, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.image_height_), _Internal::kHasBitsOffset + 17, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
       // string msg_id = 8;
       {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.msg_id_), _Internal::kHasBitsOffset + 1, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
       // int64 ts = 9;
-      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.ts_), _Internal::kHasBitsOffset + 10, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt64)},
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.ts_), _Internal::kHasBitsOffset + 14, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt64)},
       // int64 seq = 10;
-      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.seq_), _Internal::kHasBitsOffset + 11, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt64)},
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.seq_), _Internal::kHasBitsOffset + 15, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt64)},
       // string file_name = 11;
       {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.file_name_), _Internal::kHasBitsOffset + 2, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
       // int64 file_size = 12;
-      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.file_size_), _Internal::kHasBitsOffset + 12, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt64)},
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.file_size_), _Internal::kHasBitsOffset + 16, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt64)},
       // string file_id = 13;
       {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.file_id_), _Internal::kHasBitsOffset + 3, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
       // string content_type = 14;
       {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.content_type_), _Internal::kHasBitsOffset + 4, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
       // string sha256 = 15;
       {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.sha256_), _Internal::kHasBitsOffset + 5, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
+      // string thumbnail_file_id = 16;
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.thumbnail_file_id_), _Internal::kHasBitsOffset + 6, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
+      // int32 thumbnail_width = 17;
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.thumbnail_width_), _Internal::kHasBitsOffset + 18, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
+      // int32 thumbnail_height = 18;
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.thumbnail_height_), _Internal::kHasBitsOffset + 20, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
+      // int64 thumbnail_size = 19;
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.thumbnail_size_), _Internal::kHasBitsOffset + 19, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt64)},
+      // string thumbnail_sha256 = 20;
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.thumbnail_sha256_), _Internal::kHasBitsOffset + 7, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
+      // string large_thumbnail_file_id = 21;
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.large_thumbnail_file_id_), _Internal::kHasBitsOffset + 8, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
+      // int32 large_thumbnail_width = 22;
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.large_thumbnail_width_), _Internal::kHasBitsOffset + 21, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
+      // int32 large_thumbnail_height = 23;
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.large_thumbnail_height_), _Internal::kHasBitsOffset + 23, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
+      // int64 large_thumbnail_size = 24;
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.large_thumbnail_size_), _Internal::kHasBitsOffset + 22, 0, (0 | ::_fl::kFcOptional | ::_fl::kInt64)},
+      // string large_thumbnail_sha256 = 25;
+      {PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.large_thumbnail_sha256_), _Internal::kHasBitsOffset + 9, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
     }},
     // no aux_entries
     {{
-      "\23\0\0\3\0\0\0\6\0\0\11\0\7\14\6\0"
+      "\23\0\0\3\0\0\0\6\0\0\11\0\7\14\6\21\0\0\0\20\27\0\0\0\26\0\0\0\0\0\0\0"
       "im.proto.ChatInfoRq"
       "msg"
       "msg_id"
@@ -3357,6 +3423,10 @@ constexpr ChatInfoRq::ParseTableT_ ChatInfoRq::InternalGenerateParseTable_(const
       "file_id"
       "content_type"
       "sha256"
+      "thumbnail_file_id"
+      "thumbnail_sha256"
+      "large_thumbnail_file_id"
+      "large_thumbnail_sha256"
     }},
   };
 }
@@ -3384,6 +3454,18 @@ inline constexpr ChatInfoRq::Impl_::Impl_(
         sha256_(
             &::google::protobuf::internal::fixed_address_empty_string,
             ::_pbi::ConstantInitialized()),
+        thumbnail_file_id_(
+            &::google::protobuf::internal::fixed_address_empty_string,
+            ::_pbi::ConstantInitialized()),
+        thumbnail_sha256_(
+            &::google::protobuf::internal::fixed_address_empty_string,
+            ::_pbi::ConstantInitialized()),
+        large_thumbnail_file_id_(
+            &::google::protobuf::internal::fixed_address_empty_string,
+            ::_pbi::ConstantInitialized()),
+        large_thumbnail_sha256_(
+            &::google::protobuf::internal::fixed_address_empty_string,
+            ::_pbi::ConstantInitialized()),
         myid_{0},
         friid_{0},
         type_{static_cast< ::im::proto::MsgType >(0)},
@@ -3391,7 +3473,13 @@ inline constexpr ChatInfoRq::Impl_::Impl_(
         ts_{::int64_t{0}},
         seq_{::int64_t{0}},
         file_size_{::int64_t{0}},
-        image_height_{0} {}
+        image_height_{0},
+        thumbnail_width_{0},
+        thumbnail_size_{::int64_t{0}},
+        thumbnail_height_{0},
+        large_thumbnail_width_{0},
+        large_thumbnail_size_{::int64_t{0}},
+        large_thumbnail_height_{0} {}
 
 template <typename>
 constexpr ChatInfoRq::ChatInfoRq(::_pbi::ConstantInitialized,
@@ -5641,7 +5729,7 @@ const ::uint32_t
         1,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_._has_bits_),
-        17, // hasbit index offset
+        27, // hasbit index offset
         PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.myid_),
         PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.friid_),
         PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.msg_),
@@ -5656,20 +5744,40 @@ const ::uint32_t
         PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.file_id_),
         PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.content_type_),
         PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.sha256_),
-        6,
-        7,
-        0,
-        8,
-        9,
-        13,
-        1,
+        PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.thumbnail_file_id_),
+        PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.thumbnail_width_),
+        PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.thumbnail_height_),
+        PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.thumbnail_size_),
+        PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.thumbnail_sha256_),
+        PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.large_thumbnail_file_id_),
+        PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.large_thumbnail_width_),
+        PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.large_thumbnail_height_),
+        PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.large_thumbnail_size_),
+        PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRq, _impl_.large_thumbnail_sha256_),
         10,
         11,
-        2,
+        0,
         12,
+        13,
+        17,
+        1,
+        14,
+        15,
+        2,
+        16,
         3,
         4,
         5,
+        6,
+        18,
+        20,
+        19,
+        7,
+        8,
+        21,
+        23,
+        22,
+        9,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::im::proto::ChatInfoRs, _impl_._has_bits_),
         8, // hasbit index offset
@@ -5874,26 +5982,26 @@ static const ::_pbi::MigrationSchema
         {105, sizeof(::im::proto::LogoutRs)},
         {110, sizeof(::im::proto::FriendInfo)},
         {123, sizeof(::im::proto::ChatInfoRq)},
-        {154, sizeof(::im::proto::ChatInfoRs)},
-        {167, sizeof(::im::proto::AddFriendRq)},
-        {176, sizeof(::im::proto::AddFriendRs)},
-        {189, sizeof(::im::proto::FriendRequestListRq)},
-        {190, sizeof(::im::proto::FriendRequestItem)},
-        {203, sizeof(::im::proto::FriendRequestListRs)},
-        {208, sizeof(::im::proto::DeleteFriendRq)},
-        {213, sizeof(::im::proto::DeleteFriendRs)},
-        {224, sizeof(::im::proto::FriendOffline)},
-        {229, sizeof(::im::proto::RoamConvRq)},
-        {234, sizeof(::im::proto::RoamConvRs)},
-        {239, sizeof(::im::proto::RoamMsgRq)},
-        {250, sizeof(::im::proto::RoamMsgRs)},
-        {261, sizeof(::im::proto::AiReplyRq)},
-        {272, sizeof(::im::proto::AiReplyRs)},
-        {289, sizeof(::im::proto::AiCancelRq)},
-        {294, sizeof(::im::proto::AppClientHello)},
-        {307, sizeof(::im::proto::AppServerHello)},
-        {324, sizeof(::im::proto::AppFinished)},
-        {329, sizeof(::im::proto::AppEncryptedFrame)},
+        {174, sizeof(::im::proto::ChatInfoRs)},
+        {187, sizeof(::im::proto::AddFriendRq)},
+        {196, sizeof(::im::proto::AddFriendRs)},
+        {209, sizeof(::im::proto::FriendRequestListRq)},
+        {210, sizeof(::im::proto::FriendRequestItem)},
+        {223, sizeof(::im::proto::FriendRequestListRs)},
+        {228, sizeof(::im::proto::DeleteFriendRq)},
+        {233, sizeof(::im::proto::DeleteFriendRs)},
+        {244, sizeof(::im::proto::FriendOffline)},
+        {249, sizeof(::im::proto::RoamConvRq)},
+        {254, sizeof(::im::proto::RoamConvRs)},
+        {259, sizeof(::im::proto::RoamMsgRq)},
+        {270, sizeof(::im::proto::RoamMsgRs)},
+        {281, sizeof(::im::proto::AiReplyRq)},
+        {292, sizeof(::im::proto::AiReplyRs)},
+        {309, sizeof(::im::proto::AiCancelRq)},
+        {314, sizeof(::im::proto::AppClientHello)},
+        {327, sizeof(::im::proto::AppServerHello)},
+        {344, sizeof(::im::proto::AppFinished)},
+        {349, sizeof(::im::proto::AppEncryptedFrame)},
 };
 static const ::_pbi::MessageGlobalsBase* PROTOBUF_NONNULL const
     file_message_globals[] = {
@@ -5959,72 +6067,80 @@ const char descriptor_table_protodef_im_2eproto[] ABSL_ATTRIBUTE_SECTION_VARIABL
     "vices\030\003 \001(\010\022\030\n\020device_signature\030\004 \001(\014\"\032\n"
     "\010LogoutRs\022\016\n\006result\030\001 \001(\005\"[\n\nFriendInfo\022"
     "\016\n\006userid\030\001 \001(\005\022\016\n\006iconid\030\002 \001(\005\022\016\n\006statu"
-    "s\030\003 \001(\005\022\014\n\004nick\030\004 \001(\t\022\017\n\007feeling\030\005 \001(\t\"\232"
-    "\002\n\nChatInfoRq\022\014\n\004myid\030\001 \001(\005\022\r\n\005friid\030\002 \001"
+    "s\030\003 \001(\005\022\014\n\004nick\030\004 \001(\t\022\017\n\007feeling\030\005 \001(\t\"\270"
+    "\004\n\nChatInfoRq\022\014\n\004myid\030\001 \001(\005\022\r\n\005friid\030\002 \001"
     "(\005\022\013\n\003msg\030\003 \001(\t\022\037\n\004type\030\004 \001(\0162\021.im.proto"
     ".MsgType\022\023\n\013image_width\030\006 \001(\005\022\024\n\014image_h"
     "eight\030\007 \001(\005\022\016\n\006msg_id\030\010 \001(\t\022\n\n\002ts\030\t \001(\003\022"
     "\013\n\003seq\030\n \001(\003\022\021\n\tfile_name\030\013 \001(\t\022\021\n\tfile_"
     "size\030\014 \001(\003\022\017\n\007file_id\030\r \001(\t\022\024\n\014content_t"
-    "ype\030\016 \001(\t\022\016\n\006sha256\030\017 \001(\tJ\004\010\005\020\006R\nimage_d"
-    "ata\"V\n\nChatInfoRs\022\014\n\004myid\030\001 \001(\005\022\r\n\005friid"
-    "\030\002 \001(\005\022\016\n\006result\030\003 \001(\005\022\016\n\006msg_id\030\004 \001(\t\022\013"
-    "\n\003seq\030\005 \001(\003\"<\n\013AddFriendRq\022\014\n\004myid\030\001 \001(\005"
-    "\022\016\n\006mynick\030\002 \001(\t\022\017\n\007frinick\030\003 \001(\t\"]\n\013Add"
-    "FriendRs\022\016\n\006result\030\001 \001(\005\022\016\n\006destid\030\002 \001(\005"
-    "\022\020\n\010destnick\030\003 \001(\t\022\014\n\004myid\030\004 \001(\005\022\016\n\006myni"
-    "ck\030\005 \001(\t\"\025\n\023FriendRequestListRq\"}\n\021Frien"
-    "dRequestItem\022\024\n\014requester_id\030\001 \001(\005\022\021\n\tta"
-    "rget_id\030\002 \001(\005\022\026\n\016requester_nick\030\003 \001(\t\022\023\n"
-    "\013target_nick\030\004 \001(\t\022\022\n\ncreated_at\030\005 \001(\003\"D"
-    "\n\023FriendRequestListRs\022-\n\010requests\030\001 \003(\0132"
-    "\033.im.proto.FriendRequestItem\"#\n\016DeleteFr"
-    "iendRq\022\021\n\tfriend_id\030\001 \001(\005\"_\n\016DeleteFrien"
-    "dRs\022\016\n\006result\030\001 \001(\005\022\021\n\tfriend_id\030\002 \001(\005\022\023"
-    "\n\013operator_id\030\003 \001(\005\022\025\n\roperator_nick\030\004 \001"
-    "(\t\"\"\n\rFriendOffline\022\021\n\tofflineid\030\001 \001(\005\"\032"
-    "\n\nRoamConvRq\022\014\n\004myid\030\001 \001(\005\"1\n\nRoamConvRs"
-    "\022#\n\005convs\030\001 \003(\0132\024.im.proto.ChatInfoRq\"M\n"
-    "\tRoamMsgRq\022\014\n\004myid\030\001 \001(\005\022\017\n\007peer_id\030\002 \001("
-    "\005\022\022\n\nbefore_seq\030\003 \001(\003\022\r\n\005limit\030\004 \001(\005\"c\n\t"
-    "RoamMsgRs\022\017\n\007peer_id\030\001 \001(\005\022\"\n\004msgs\030\002 \003(\013"
-    "2\024.im.proto.ChatInfoRq\022\020\n\010has_more\030\003 \001(\010"
-    "\022\017\n\007min_seq\030\004 \001(\003\"W\n\tAiReplyRq\022\022\n\nreques"
-    "t_id\030\001 \001(\t\022\017\n\007peer_id\030\002 \001(\005\022\014\n\004tone\030\003 \001("
-    "\t\022\027\n\017max_suggestions\030\004 \001(\005\"\250\001\n\tAiReplyRs"
-    "\022\022\n\nrequest_id\030\001 \001(\t\022\'\n\006status\030\002 \001(\0162\027.i"
-    "m.proto.AiReplyStatus\022\023\n\013suggestions\030\003 \003"
-    "(\t\022\025\n\rerror_message\030\004 \001(\t\022\017\n\007partial\030\005 \001"
-    "(\010\022\023\n\013chunk_index\030\006 \001(\005\022\014\n\004done\030\007 \001(\010\" \n"
-    "\nAiCancelRq\022\022\n\nrequest_id\030\001 \001(\t\"\246\001\n\016AppC"
-    "lientHello\022\017\n\007version\030\001 \001(\r\022#\n\033client_ep"
-    "hemeral_public_key\030\002 \001(\014\022\024\n\014client_nonce"
-    "\030\003 \001(\014\022\030\n\020client_random_id\030\004 \001(\014\022.\n\014ciph"
-    "er_suite\030\005 \001(\0162\030.im.proto.AppCipherSuite"
-    "\"\303\001\n\016AppServerHello\022\017\n\007version\030\001 \001(\r\022#\n\033"
-    "server_ephemeral_public_key\030\002 \001(\014\022\024\n\014ser"
-    "ver_nonce\030\003 \001(\014\022\022\n\nsession_id\030\004 \001(\014\022\016\n\006k"
-    "ey_id\030\005 \001(\r\022\021\n\tsignature\030\006 \001(\014\022.\n\014cipher"
-    "_suite\030\007 \001(\0162\030.im.proto.AppCipherSuite\"\""
-    "\n\013AppFinished\022\023\n\013verify_data\030\001 \001(\014\"k\n\021Ap"
-    "pEncryptedFrame\022\017\n\007version\030\001 \001(\r\022\022\n\nsess"
-    "ion_id\030\002 \001(\014\022\020\n\010sequence\030\003 \001(\004\022\022\n\ncipher"
-    "text\030\004 \001(\014\022\013\n\003tag\030\005 \001(\014*(\n\007MsgType\022\010\n\004TE"
-    "XT\020\000\022\t\n\005IMAGE\020\001\022\010\n\004FILE\020\002*\332\001\n\rAiReplySta"
-    "tus\022\017\n\013AI_REPLY_OK\020\000\022\034\n\030AI_REPLY_INVALID"
-    "_REQUEST\020\001\022\031\n\025AI_REPLY_UNAUTHORIZED\020\002\022\027\n"
-    "\023AI_REPLY_NOT_FRIEND\020\003\022\031\n\025AI_REPLY_RATE_"
-    "LIMITED\020\004\022\021\n\rAI_REPLY_BUSY\020\005\022\033\n\027AI_REPLY"
-    "_NOT_CONFIGURED\020\006\022\033\n\027AI_REPLY_UPSTREAM_E"
-    "RROR\020\007*c\n\016AppCipherSuite\022\032\n\026APP_CIPHER_U"
-    "NSPECIFIED\020\000\0225\n1APP_CIPHER_X25519_ED2551"
-    "9_HKDF_SHA256_AES_256_GCM\020\001b\006proto3"
+    "ype\030\016 \001(\t\022\016\n\006sha256\030\017 \001(\t\022\031\n\021thumbnail_f"
+    "ile_id\030\020 \001(\t\022\027\n\017thumbnail_width\030\021 \001(\005\022\030\n"
+    "\020thumbnail_height\030\022 \001(\005\022\026\n\016thumbnail_siz"
+    "e\030\023 \001(\003\022\030\n\020thumbnail_sha256\030\024 \001(\t\022\037\n\027lar"
+    "ge_thumbnail_file_id\030\025 \001(\t\022\035\n\025large_thum"
+    "bnail_width\030\026 \001(\005\022\036\n\026large_thumbnail_hei"
+    "ght\030\027 \001(\005\022\034\n\024large_thumbnail_size\030\030 \001(\003\022"
+    "\036\n\026large_thumbnail_sha256\030\031 \001(\tJ\004\010\005\020\006R\ni"
+    "mage_data\"V\n\nChatInfoRs\022\014\n\004myid\030\001 \001(\005\022\r\n"
+    "\005friid\030\002 \001(\005\022\016\n\006result\030\003 \001(\005\022\016\n\006msg_id\030\004"
+    " \001(\t\022\013\n\003seq\030\005 \001(\003\"<\n\013AddFriendRq\022\014\n\004myid"
+    "\030\001 \001(\005\022\016\n\006mynick\030\002 \001(\t\022\017\n\007frinick\030\003 \001(\t\""
+    "]\n\013AddFriendRs\022\016\n\006result\030\001 \001(\005\022\016\n\006destid"
+    "\030\002 \001(\005\022\020\n\010destnick\030\003 \001(\t\022\014\n\004myid\030\004 \001(\005\022\016"
+    "\n\006mynick\030\005 \001(\t\"\025\n\023FriendRequestListRq\"}\n"
+    "\021FriendRequestItem\022\024\n\014requester_id\030\001 \001(\005"
+    "\022\021\n\ttarget_id\030\002 \001(\005\022\026\n\016requester_nick\030\003 "
+    "\001(\t\022\023\n\013target_nick\030\004 \001(\t\022\022\n\ncreated_at\030\005"
+    " \001(\003\"D\n\023FriendRequestListRs\022-\n\010requests\030"
+    "\001 \003(\0132\033.im.proto.FriendRequestItem\"#\n\016De"
+    "leteFriendRq\022\021\n\tfriend_id\030\001 \001(\005\"_\n\016Delet"
+    "eFriendRs\022\016\n\006result\030\001 \001(\005\022\021\n\tfriend_id\030\002"
+    " \001(\005\022\023\n\013operator_id\030\003 \001(\005\022\025\n\roperator_ni"
+    "ck\030\004 \001(\t\"\"\n\rFriendOffline\022\021\n\tofflineid\030\001"
+    " \001(\005\"\032\n\nRoamConvRq\022\014\n\004myid\030\001 \001(\005\"1\n\nRoam"
+    "ConvRs\022#\n\005convs\030\001 \003(\0132\024.im.proto.ChatInf"
+    "oRq\"M\n\tRoamMsgRq\022\014\n\004myid\030\001 \001(\005\022\017\n\007peer_i"
+    "d\030\002 \001(\005\022\022\n\nbefore_seq\030\003 \001(\003\022\r\n\005limit\030\004 \001"
+    "(\005\"c\n\tRoamMsgRs\022\017\n\007peer_id\030\001 \001(\005\022\"\n\004msgs"
+    "\030\002 \003(\0132\024.im.proto.ChatInfoRq\022\020\n\010has_more"
+    "\030\003 \001(\010\022\017\n\007min_seq\030\004 \001(\003\"W\n\tAiReplyRq\022\022\n\n"
+    "request_id\030\001 \001(\t\022\017\n\007peer_id\030\002 \001(\005\022\014\n\004ton"
+    "e\030\003 \001(\t\022\027\n\017max_suggestions\030\004 \001(\005\"\250\001\n\tAiR"
+    "eplyRs\022\022\n\nrequest_id\030\001 \001(\t\022\'\n\006status\030\002 \001"
+    "(\0162\027.im.proto.AiReplyStatus\022\023\n\013suggestio"
+    "ns\030\003 \003(\t\022\025\n\rerror_message\030\004 \001(\t\022\017\n\007parti"
+    "al\030\005 \001(\010\022\023\n\013chunk_index\030\006 \001(\005\022\014\n\004done\030\007 "
+    "\001(\010\" \n\nAiCancelRq\022\022\n\nrequest_id\030\001 \001(\t\"\246\001"
+    "\n\016AppClientHello\022\017\n\007version\030\001 \001(\r\022#\n\033cli"
+    "ent_ephemeral_public_key\030\002 \001(\014\022\024\n\014client"
+    "_nonce\030\003 \001(\014\022\030\n\020client_random_id\030\004 \001(\014\022."
+    "\n\014cipher_suite\030\005 \001(\0162\030.im.proto.AppCiphe"
+    "rSuite\"\303\001\n\016AppServerHello\022\017\n\007version\030\001 \001"
+    "(\r\022#\n\033server_ephemeral_public_key\030\002 \001(\014\022"
+    "\024\n\014server_nonce\030\003 \001(\014\022\022\n\nsession_id\030\004 \001("
+    "\014\022\016\n\006key_id\030\005 \001(\r\022\021\n\tsignature\030\006 \001(\014\022.\n\014"
+    "cipher_suite\030\007 \001(\0162\030.im.proto.AppCipherS"
+    "uite\"\"\n\013AppFinished\022\023\n\013verify_data\030\001 \001(\014"
+    "\"k\n\021AppEncryptedFrame\022\017\n\007version\030\001 \001(\r\022\022"
+    "\n\nsession_id\030\002 \001(\014\022\020\n\010sequence\030\003 \001(\004\022\022\n\n"
+    "ciphertext\030\004 \001(\014\022\013\n\003tag\030\005 \001(\014*(\n\007MsgType"
+    "\022\010\n\004TEXT\020\000\022\t\n\005IMAGE\020\001\022\010\n\004FILE\020\002*\332\001\n\rAiRe"
+    "plyStatus\022\017\n\013AI_REPLY_OK\020\000\022\034\n\030AI_REPLY_I"
+    "NVALID_REQUEST\020\001\022\031\n\025AI_REPLY_UNAUTHORIZE"
+    "D\020\002\022\027\n\023AI_REPLY_NOT_FRIEND\020\003\022\031\n\025AI_REPLY"
+    "_RATE_LIMITED\020\004\022\021\n\rAI_REPLY_BUSY\020\005\022\033\n\027AI"
+    "_REPLY_NOT_CONFIGURED\020\006\022\033\n\027AI_REPLY_UPST"
+    "REAM_ERROR\020\007*c\n\016AppCipherSuite\022\032\n\026APP_CI"
+    "PHER_UNSPECIFIED\020\000\0225\n1APP_CIPHER_X25519_"
+    "ED25519_HKDF_SHA256_AES_256_GCM\020\001b\006proto"
+    "3"
 };
 static ::absl::once_flag descriptor_table_im_2eproto_once;
 PROTOBUF_CONSTINIT const ::_pbi::DescriptorTable descriptor_table_im_2eproto = {
     false,
     false,
-    3475,
+    3761,
     descriptor_table_protodef_im_2eproto,
     "im.proto",
     &descriptor_table_im_2eproto_once,
@@ -9450,7 +9566,11 @@ PROTOBUF_NDEBUG_INLINE ChatInfoRq::Impl_::Impl_(
         file_name_(arena, from.file_name_),
         file_id_(arena, from.file_id_),
         content_type_(arena, from.content_type_),
-        sha256_(arena, from.sha256_) {}
+        sha256_(arena, from.sha256_),
+        thumbnail_file_id_(arena, from.thumbnail_file_id_),
+        thumbnail_sha256_(arena, from.thumbnail_sha256_),
+        large_thumbnail_file_id_(arena, from.large_thumbnail_file_id_),
+        large_thumbnail_sha256_(arena, from.large_thumbnail_sha256_) {}
 
 ChatInfoRq::ChatInfoRq(
     ::google::protobuf::Arena* PROTOBUF_NULLABLE arena,
@@ -9470,9 +9590,9 @@ ChatInfoRq::ChatInfoRq(
                offsetof(Impl_, myid_),
            reinterpret_cast<const char*>(&from._impl_) +
                offsetof(Impl_, myid_),
-           offsetof(Impl_, image_height_) -
+           offsetof(Impl_, large_thumbnail_height_) -
                offsetof(Impl_, myid_) +
-               sizeof(Impl_::image_height_));
+               sizeof(Impl_::large_thumbnail_height_));
 
   // @@protoc_insertion_point(copy_constructor:im.proto.ChatInfoRq)
 }
@@ -9485,16 +9605,20 @@ PROTOBUF_NDEBUG_INLINE ChatInfoRq::Impl_::Impl_(
         file_name_(arena),
         file_id_(arena),
         content_type_(arena),
-        sha256_(arena) {}
+        sha256_(arena),
+        thumbnail_file_id_(arena),
+        thumbnail_sha256_(arena),
+        large_thumbnail_file_id_(arena),
+        large_thumbnail_sha256_(arena) {}
 
 inline void ChatInfoRq::SharedCtor(::_pb::Arena* PROTOBUF_NULLABLE arena) {
   new (&_impl_) Impl_(internal_visibility(), arena);
   ::memset(reinterpret_cast<char*>(&_impl_) +
                offsetof(Impl_, myid_),
            0,
-           offsetof(Impl_, image_height_) -
+           offsetof(Impl_, large_thumbnail_height_) -
                offsetof(Impl_, myid_) +
-               sizeof(Impl_::image_height_));
+               sizeof(Impl_::large_thumbnail_height_));
 }
 ChatInfoRq::~ChatInfoRq() {
   // @@protoc_insertion_point(destructor:im.proto.ChatInfoRq)
@@ -9513,6 +9637,10 @@ inline void ChatInfoRq::SharedDtor(MessageLite& self) {
   this_._impl_.file_id_.Destroy();
   this_._impl_.content_type_.Destroy();
   this_._impl_.sha256_.Destroy();
+  this_._impl_.thumbnail_file_id_.Destroy();
+  this_._impl_.thumbnail_sha256_.Destroy();
+  this_._impl_.large_thumbnail_file_id_.Destroy();
+  this_._impl_.large_thumbnail_sha256_.Destroy();
   this_._impl_.~Impl_();
 }
 
@@ -9550,7 +9678,7 @@ PROTOBUF_NOINLINE void ChatInfoRq::Clear() {
   (void) cached_has_bits;
 
   cached_has_bits = _impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x0000003fU)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x000000ffU)) {
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       _impl_.msg_.ClearNonDefaultToEmpty();
     }
@@ -9569,16 +9697,30 @@ PROTOBUF_NOINLINE void ChatInfoRq::Clear() {
     if (CheckHasBit(cached_has_bits, 0x00000020U)) {
       _impl_.sha256_.ClearNonDefaultToEmpty();
     }
+    if (CheckHasBit(cached_has_bits, 0x00000040U)) {
+      _impl_.thumbnail_file_id_.ClearNonDefaultToEmpty();
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000080U)) {
+      _impl_.thumbnail_sha256_.ClearNonDefaultToEmpty();
+    }
   }
-  if (BatchCheckHasBit(cached_has_bits, 0x000000c0U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x00000300U)) {
+    if (CheckHasBit(cached_has_bits, 0x00000100U)) {
+      _impl_.large_thumbnail_file_id_.ClearNonDefaultToEmpty();
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000200U)) {
+      _impl_.large_thumbnail_sha256_.ClearNonDefaultToEmpty();
+    }
+  }
+  if (BatchCheckHasBit(cached_has_bits, 0x0000fc00U)) {
     ::memset(&_impl_.myid_, 0, static_cast<::size_t>(
-        reinterpret_cast<char*>(&_impl_.friid_) -
-        reinterpret_cast<char*>(&_impl_.myid_)) + sizeof(_impl_.friid_));
+        reinterpret_cast<char*>(&_impl_.seq_) -
+        reinterpret_cast<char*>(&_impl_.myid_)) + sizeof(_impl_.seq_));
   }
-  if (BatchCheckHasBit(cached_has_bits, 0x00003f00U)) {
-    ::memset(&_impl_.type_, 0, static_cast<::size_t>(
-        reinterpret_cast<char*>(&_impl_.image_height_) -
-        reinterpret_cast<char*>(&_impl_.type_)) + sizeof(_impl_.image_height_));
+  if (BatchCheckHasBit(cached_has_bits, 0x00ff0000U)) {
+    ::memset(&_impl_.file_size_, 0, static_cast<::size_t>(
+        reinterpret_cast<char*>(&_impl_.large_thumbnail_height_) -
+        reinterpret_cast<char*>(&_impl_.file_size_)) + sizeof(_impl_.large_thumbnail_height_));
   }
   _impl_._has_bits_.Clear();
   _internal_metadata_.Clear<::google::protobuf::UnknownFieldSet>();
@@ -9604,7 +9746,7 @@ PROTOBUF_NOINLINE void ChatInfoRq::Clear() {
 
   cached_has_bits = this_._impl_._has_bits_[0];
   // int32 myid = 1;
-  if (CheckHasBit(cached_has_bits, 0x00000040U)) {
+  if (CheckHasBit(cached_has_bits, 0x00000400U)) {
     if (this_._internal_myid() != 0) {
       target =
           ::google::protobuf::internal::WireFormatLite::WriteInt32ToArrayWithField<1>(
@@ -9613,7 +9755,7 @@ PROTOBUF_NOINLINE void ChatInfoRq::Clear() {
   }
 
   // int32 friid = 2;
-  if (CheckHasBit(cached_has_bits, 0x00000080U)) {
+  if (CheckHasBit(cached_has_bits, 0x00000800U)) {
     if (this_._internal_friid() != 0) {
       target =
           ::google::protobuf::internal::WireFormatLite::WriteInt32ToArrayWithField<2>(
@@ -9632,7 +9774,7 @@ PROTOBUF_NOINLINE void ChatInfoRq::Clear() {
   }
 
   // .im.proto.MsgType type = 4;
-  if (CheckHasBit(cached_has_bits, 0x00000100U)) {
+  if (CheckHasBit(cached_has_bits, 0x00001000U)) {
     if (this_._internal_type() != 0) {
       target = stream->EnsureSpace(target);
       target = ::_pbi::WireFormatLite::WriteEnumToArray(
@@ -9641,7 +9783,7 @@ PROTOBUF_NOINLINE void ChatInfoRq::Clear() {
   }
 
   // int32 image_width = 6;
-  if (CheckHasBit(cached_has_bits, 0x00000200U)) {
+  if (CheckHasBit(cached_has_bits, 0x00002000U)) {
     if (this_._internal_image_width() != 0) {
       target =
           ::google::protobuf::internal::WireFormatLite::WriteInt32ToArrayWithField<6>(
@@ -9650,7 +9792,7 @@ PROTOBUF_NOINLINE void ChatInfoRq::Clear() {
   }
 
   // int32 image_height = 7;
-  if (CheckHasBit(cached_has_bits, 0x00002000U)) {
+  if (CheckHasBit(cached_has_bits, 0x00020000U)) {
     if (this_._internal_image_height() != 0) {
       target =
           ::google::protobuf::internal::WireFormatLite::WriteInt32ToArrayWithField<7>(
@@ -9669,7 +9811,7 @@ PROTOBUF_NOINLINE void ChatInfoRq::Clear() {
   }
 
   // int64 ts = 9;
-  if (CheckHasBit(cached_has_bits, 0x00000400U)) {
+  if (CheckHasBit(cached_has_bits, 0x00004000U)) {
     if (this_._internal_ts() != 0) {
       target =
           ::google::protobuf::internal::WireFormatLite::WriteInt64ToArrayWithField<9>(
@@ -9678,7 +9820,7 @@ PROTOBUF_NOINLINE void ChatInfoRq::Clear() {
   }
 
   // int64 seq = 10;
-  if (CheckHasBit(cached_has_bits, 0x00000800U)) {
+  if (CheckHasBit(cached_has_bits, 0x00008000U)) {
     if (this_._internal_seq() != 0) {
       target =
           ::google::protobuf::internal::WireFormatLite::WriteInt64ToArrayWithField<10>(
@@ -9697,7 +9839,7 @@ PROTOBUF_NOINLINE void ChatInfoRq::Clear() {
   }
 
   // int64 file_size = 12;
-  if (CheckHasBit(cached_has_bits, 0x00001000U)) {
+  if (CheckHasBit(cached_has_bits, 0x00010000U)) {
     if (this_._internal_file_size() != 0) {
       target =
           ::google::protobuf::internal::WireFormatLite::WriteInt64ToArrayWithField<12>(
@@ -9732,6 +9874,100 @@ PROTOBUF_NOINLINE void ChatInfoRq::Clear() {
       ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
           _s.data(), static_cast<int>(_s.length()), ::google::protobuf::internal::WireFormatLite::SERIALIZE, "im.proto.ChatInfoRq.sha256");
       target = stream->WriteStringMaybeAliased(15, _s, target);
+    }
+  }
+
+  // string thumbnail_file_id = 16;
+  if (CheckHasBit(cached_has_bits, 0x00000040U)) {
+    if (!this_._internal_thumbnail_file_id().empty()) {
+      const ::std::string& _s = this_._internal_thumbnail_file_id();
+      ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
+          _s.data(), static_cast<int>(_s.length()), ::google::protobuf::internal::WireFormatLite::SERIALIZE, "im.proto.ChatInfoRq.thumbnail_file_id");
+      target = stream->WriteStringMaybeAliased(16, _s, target);
+    }
+  }
+
+  // int32 thumbnail_width = 17;
+  if (CheckHasBit(cached_has_bits, 0x00040000U)) {
+    if (this_._internal_thumbnail_width() != 0) {
+      target = stream->EnsureSpace(target);
+      target = ::_pbi::WireFormatLite::WriteInt32ToArray(
+          17, this_._internal_thumbnail_width(), target);
+    }
+  }
+
+  // int32 thumbnail_height = 18;
+  if (CheckHasBit(cached_has_bits, 0x00100000U)) {
+    if (this_._internal_thumbnail_height() != 0) {
+      target = stream->EnsureSpace(target);
+      target = ::_pbi::WireFormatLite::WriteInt32ToArray(
+          18, this_._internal_thumbnail_height(), target);
+    }
+  }
+
+  // int64 thumbnail_size = 19;
+  if (CheckHasBit(cached_has_bits, 0x00080000U)) {
+    if (this_._internal_thumbnail_size() != 0) {
+      target = stream->EnsureSpace(target);
+      target = ::_pbi::WireFormatLite::WriteInt64ToArray(
+          19, this_._internal_thumbnail_size(), target);
+    }
+  }
+
+  // string thumbnail_sha256 = 20;
+  if (CheckHasBit(cached_has_bits, 0x00000080U)) {
+    if (!this_._internal_thumbnail_sha256().empty()) {
+      const ::std::string& _s = this_._internal_thumbnail_sha256();
+      ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
+          _s.data(), static_cast<int>(_s.length()), ::google::protobuf::internal::WireFormatLite::SERIALIZE, "im.proto.ChatInfoRq.thumbnail_sha256");
+      target = stream->WriteStringMaybeAliased(20, _s, target);
+    }
+  }
+
+  // string large_thumbnail_file_id = 21;
+  if (CheckHasBit(cached_has_bits, 0x00000100U)) {
+    if (!this_._internal_large_thumbnail_file_id().empty()) {
+      const ::std::string& _s = this_._internal_large_thumbnail_file_id();
+      ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
+          _s.data(), static_cast<int>(_s.length()), ::google::protobuf::internal::WireFormatLite::SERIALIZE, "im.proto.ChatInfoRq.large_thumbnail_file_id");
+      target = stream->WriteStringMaybeAliased(21, _s, target);
+    }
+  }
+
+  // int32 large_thumbnail_width = 22;
+  if (CheckHasBit(cached_has_bits, 0x00200000U)) {
+    if (this_._internal_large_thumbnail_width() != 0) {
+      target = stream->EnsureSpace(target);
+      target = ::_pbi::WireFormatLite::WriteInt32ToArray(
+          22, this_._internal_large_thumbnail_width(), target);
+    }
+  }
+
+  // int32 large_thumbnail_height = 23;
+  if (CheckHasBit(cached_has_bits, 0x00800000U)) {
+    if (this_._internal_large_thumbnail_height() != 0) {
+      target = stream->EnsureSpace(target);
+      target = ::_pbi::WireFormatLite::WriteInt32ToArray(
+          23, this_._internal_large_thumbnail_height(), target);
+    }
+  }
+
+  // int64 large_thumbnail_size = 24;
+  if (CheckHasBit(cached_has_bits, 0x00400000U)) {
+    if (this_._internal_large_thumbnail_size() != 0) {
+      target = stream->EnsureSpace(target);
+      target = ::_pbi::WireFormatLite::WriteInt64ToArray(
+          24, this_._internal_large_thumbnail_size(), target);
+    }
+  }
+
+  // string large_thumbnail_sha256 = 25;
+  if (CheckHasBit(cached_has_bits, 0x00000200U)) {
+    if (!this_._internal_large_thumbnail_sha256().empty()) {
+      const ::std::string& _s = this_._internal_large_thumbnail_sha256();
+      ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
+          _s.data(), static_cast<int>(_s.length()), ::google::protobuf::internal::WireFormatLite::SERIALIZE, "im.proto.ChatInfoRq.large_thumbnail_sha256");
+      target = stream->WriteStringMaybeAliased(25, _s, target);
     }
   }
 
@@ -9803,62 +10039,134 @@ PROTOBUF_NOINLINE void ChatInfoRq::Clear() {
                                         this_._internal_sha256());
       }
     }
-    // int32 myid = 1;
+    // string thumbnail_file_id = 16;
     if (CheckHasBit(cached_has_bits, 0x00000040U)) {
+      if (!this_._internal_thumbnail_file_id().empty()) {
+        total_size += 2 + ::google::protobuf::internal::WireFormatLite::StringSize(
+                                        this_._internal_thumbnail_file_id());
+      }
+    }
+    // string thumbnail_sha256 = 20;
+    if (CheckHasBit(cached_has_bits, 0x00000080U)) {
+      if (!this_._internal_thumbnail_sha256().empty()) {
+        total_size += 2 + ::google::protobuf::internal::WireFormatLite::StringSize(
+                                        this_._internal_thumbnail_sha256());
+      }
+    }
+  }
+  if (BatchCheckHasBit(cached_has_bits, 0x0000ff00U)) {
+    // string large_thumbnail_file_id = 21;
+    if (CheckHasBit(cached_has_bits, 0x00000100U)) {
+      if (!this_._internal_large_thumbnail_file_id().empty()) {
+        total_size += 2 + ::google::protobuf::internal::WireFormatLite::StringSize(
+                                        this_._internal_large_thumbnail_file_id());
+      }
+    }
+    // string large_thumbnail_sha256 = 25;
+    if (CheckHasBit(cached_has_bits, 0x00000200U)) {
+      if (!this_._internal_large_thumbnail_sha256().empty()) {
+        total_size += 2 + ::google::protobuf::internal::WireFormatLite::StringSize(
+                                        this_._internal_large_thumbnail_sha256());
+      }
+    }
+    // int32 myid = 1;
+    if (CheckHasBit(cached_has_bits, 0x00000400U)) {
       if (this_._internal_myid() != 0) {
         total_size += ::_pbi::WireFormatLite::Int32SizePlusOne(
             this_._internal_myid());
       }
     }
     // int32 friid = 2;
-    if (CheckHasBit(cached_has_bits, 0x00000080U)) {
+    if (CheckHasBit(cached_has_bits, 0x00000800U)) {
       if (this_._internal_friid() != 0) {
         total_size += ::_pbi::WireFormatLite::Int32SizePlusOne(
             this_._internal_friid());
       }
     }
-  }
-  if (BatchCheckHasBit(cached_has_bits, 0x00003f00U)) {
     // .im.proto.MsgType type = 4;
-    if (CheckHasBit(cached_has_bits, 0x00000100U)) {
+    if (CheckHasBit(cached_has_bits, 0x00001000U)) {
       if (this_._internal_type() != 0) {
         total_size += 1 +
                       ::_pbi::WireFormatLite::EnumSize(this_._internal_type());
       }
     }
     // int32 image_width = 6;
-    if (CheckHasBit(cached_has_bits, 0x00000200U)) {
+    if (CheckHasBit(cached_has_bits, 0x00002000U)) {
       if (this_._internal_image_width() != 0) {
         total_size += ::_pbi::WireFormatLite::Int32SizePlusOne(
             this_._internal_image_width());
       }
     }
     // int64 ts = 9;
-    if (CheckHasBit(cached_has_bits, 0x00000400U)) {
+    if (CheckHasBit(cached_has_bits, 0x00004000U)) {
       if (this_._internal_ts() != 0) {
         total_size += ::_pbi::WireFormatLite::Int64SizePlusOne(
             this_._internal_ts());
       }
     }
     // int64 seq = 10;
-    if (CheckHasBit(cached_has_bits, 0x00000800U)) {
+    if (CheckHasBit(cached_has_bits, 0x00008000U)) {
       if (this_._internal_seq() != 0) {
         total_size += ::_pbi::WireFormatLite::Int64SizePlusOne(
             this_._internal_seq());
       }
     }
+  }
+  if (BatchCheckHasBit(cached_has_bits, 0x00ff0000U)) {
     // int64 file_size = 12;
-    if (CheckHasBit(cached_has_bits, 0x00001000U)) {
+    if (CheckHasBit(cached_has_bits, 0x00010000U)) {
       if (this_._internal_file_size() != 0) {
         total_size += ::_pbi::WireFormatLite::Int64SizePlusOne(
             this_._internal_file_size());
       }
     }
     // int32 image_height = 7;
-    if (CheckHasBit(cached_has_bits, 0x00002000U)) {
+    if (CheckHasBit(cached_has_bits, 0x00020000U)) {
       if (this_._internal_image_height() != 0) {
         total_size += ::_pbi::WireFormatLite::Int32SizePlusOne(
             this_._internal_image_height());
+      }
+    }
+    // int32 thumbnail_width = 17;
+    if (CheckHasBit(cached_has_bits, 0x00040000U)) {
+      if (this_._internal_thumbnail_width() != 0) {
+        total_size += 2 + ::_pbi::WireFormatLite::Int32Size(
+                                        this_._internal_thumbnail_width());
+      }
+    }
+    // int64 thumbnail_size = 19;
+    if (CheckHasBit(cached_has_bits, 0x00080000U)) {
+      if (this_._internal_thumbnail_size() != 0) {
+        total_size += 2 + ::_pbi::WireFormatLite::Int64Size(
+                                        this_._internal_thumbnail_size());
+      }
+    }
+    // int32 thumbnail_height = 18;
+    if (CheckHasBit(cached_has_bits, 0x00100000U)) {
+      if (this_._internal_thumbnail_height() != 0) {
+        total_size += 2 + ::_pbi::WireFormatLite::Int32Size(
+                                        this_._internal_thumbnail_height());
+      }
+    }
+    // int32 large_thumbnail_width = 22;
+    if (CheckHasBit(cached_has_bits, 0x00200000U)) {
+      if (this_._internal_large_thumbnail_width() != 0) {
+        total_size += 2 + ::_pbi::WireFormatLite::Int32Size(
+                                        this_._internal_large_thumbnail_width());
+      }
+    }
+    // int64 large_thumbnail_size = 24;
+    if (CheckHasBit(cached_has_bits, 0x00400000U)) {
+      if (this_._internal_large_thumbnail_size() != 0) {
+        total_size += 2 + ::_pbi::WireFormatLite::Int64Size(
+                                        this_._internal_large_thumbnail_size());
+      }
+    }
+    // int32 large_thumbnail_height = 23;
+    if (CheckHasBit(cached_has_bits, 0x00800000U)) {
+      if (this_._internal_large_thumbnail_height() != 0) {
+        total_size += 2 + ::_pbi::WireFormatLite::Int32Size(
+                                        this_._internal_large_thumbnail_height());
       }
     }
   }
@@ -9935,45 +10243,113 @@ void ChatInfoRq::MergeImpl(::google::protobuf::MessageLite& to_msg,
       }
     }
     if (CheckHasBit(cached_has_bits, 0x00000040U)) {
+      if (!from._internal_thumbnail_file_id().empty()) {
+        _this->_internal_set_thumbnail_file_id(from._internal_thumbnail_file_id());
+      } else {
+        if (_this->_impl_.thumbnail_file_id_.IsDefault()) {
+          _this->_internal_set_thumbnail_file_id("");
+        }
+      }
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000080U)) {
+      if (!from._internal_thumbnail_sha256().empty()) {
+        _this->_internal_set_thumbnail_sha256(from._internal_thumbnail_sha256());
+      } else {
+        if (_this->_impl_.thumbnail_sha256_.IsDefault()) {
+          _this->_internal_set_thumbnail_sha256("");
+        }
+      }
+    }
+  }
+  if (BatchCheckHasBit(cached_has_bits, 0x0000ff00U)) {
+    if (CheckHasBit(cached_has_bits, 0x00000100U)) {
+      if (!from._internal_large_thumbnail_file_id().empty()) {
+        _this->_internal_set_large_thumbnail_file_id(from._internal_large_thumbnail_file_id());
+      } else {
+        if (_this->_impl_.large_thumbnail_file_id_.IsDefault()) {
+          _this->_internal_set_large_thumbnail_file_id("");
+        }
+      }
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000200U)) {
+      if (!from._internal_large_thumbnail_sha256().empty()) {
+        _this->_internal_set_large_thumbnail_sha256(from._internal_large_thumbnail_sha256());
+      } else {
+        if (_this->_impl_.large_thumbnail_sha256_.IsDefault()) {
+          _this->_internal_set_large_thumbnail_sha256("");
+        }
+      }
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000400U)) {
       if (from._internal_myid() != 0) {
         _this->_impl_.myid_ = from._impl_.myid_;
       }
     }
-    if (CheckHasBit(cached_has_bits, 0x00000080U)) {
+    if (CheckHasBit(cached_has_bits, 0x00000800U)) {
       if (from._internal_friid() != 0) {
         _this->_impl_.friid_ = from._impl_.friid_;
       }
     }
-  }
-  if (BatchCheckHasBit(cached_has_bits, 0x00003f00U)) {
-    if (CheckHasBit(cached_has_bits, 0x00000100U)) {
+    if (CheckHasBit(cached_has_bits, 0x00001000U)) {
       if (from._internal_type() != 0) {
         _this->_impl_.type_ = from._impl_.type_;
       }
     }
-    if (CheckHasBit(cached_has_bits, 0x00000200U)) {
+    if (CheckHasBit(cached_has_bits, 0x00002000U)) {
       if (from._internal_image_width() != 0) {
         _this->_impl_.image_width_ = from._impl_.image_width_;
       }
     }
-    if (CheckHasBit(cached_has_bits, 0x00000400U)) {
+    if (CheckHasBit(cached_has_bits, 0x00004000U)) {
       if (from._internal_ts() != 0) {
         _this->_impl_.ts_ = from._impl_.ts_;
       }
     }
-    if (CheckHasBit(cached_has_bits, 0x00000800U)) {
+    if (CheckHasBit(cached_has_bits, 0x00008000U)) {
       if (from._internal_seq() != 0) {
         _this->_impl_.seq_ = from._impl_.seq_;
       }
     }
-    if (CheckHasBit(cached_has_bits, 0x00001000U)) {
+  }
+  if (BatchCheckHasBit(cached_has_bits, 0x00ff0000U)) {
+    if (CheckHasBit(cached_has_bits, 0x00010000U)) {
       if (from._internal_file_size() != 0) {
         _this->_impl_.file_size_ = from._impl_.file_size_;
       }
     }
-    if (CheckHasBit(cached_has_bits, 0x00002000U)) {
+    if (CheckHasBit(cached_has_bits, 0x00020000U)) {
       if (from._internal_image_height() != 0) {
         _this->_impl_.image_height_ = from._impl_.image_height_;
+      }
+    }
+    if (CheckHasBit(cached_has_bits, 0x00040000U)) {
+      if (from._internal_thumbnail_width() != 0) {
+        _this->_impl_.thumbnail_width_ = from._impl_.thumbnail_width_;
+      }
+    }
+    if (CheckHasBit(cached_has_bits, 0x00080000U)) {
+      if (from._internal_thumbnail_size() != 0) {
+        _this->_impl_.thumbnail_size_ = from._impl_.thumbnail_size_;
+      }
+    }
+    if (CheckHasBit(cached_has_bits, 0x00100000U)) {
+      if (from._internal_thumbnail_height() != 0) {
+        _this->_impl_.thumbnail_height_ = from._impl_.thumbnail_height_;
+      }
+    }
+    if (CheckHasBit(cached_has_bits, 0x00200000U)) {
+      if (from._internal_large_thumbnail_width() != 0) {
+        _this->_impl_.large_thumbnail_width_ = from._impl_.large_thumbnail_width_;
+      }
+    }
+    if (CheckHasBit(cached_has_bits, 0x00400000U)) {
+      if (from._internal_large_thumbnail_size() != 0) {
+        _this->_impl_.large_thumbnail_size_ = from._impl_.large_thumbnail_size_;
+      }
+    }
+    if (CheckHasBit(cached_has_bits, 0x00800000U)) {
+      if (from._internal_large_thumbnail_height() != 0) {
+        _this->_impl_.large_thumbnail_height_ = from._impl_.large_thumbnail_height_;
       }
     }
   }
@@ -10002,9 +10378,13 @@ void ChatInfoRq::InternalSwap(ChatInfoRq* PROTOBUF_RESTRICT PROTOBUF_NONNULL oth
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.file_id_, &other->_impl_.file_id_, arena);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.content_type_, &other->_impl_.content_type_, arena);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.sha256_, &other->_impl_.sha256_, arena);
+  ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.thumbnail_file_id_, &other->_impl_.thumbnail_file_id_, arena);
+  ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.thumbnail_sha256_, &other->_impl_.thumbnail_sha256_, arena);
+  ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.large_thumbnail_file_id_, &other->_impl_.large_thumbnail_file_id_, arena);
+  ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.large_thumbnail_sha256_, &other->_impl_.large_thumbnail_sha256_, arena);
   ::google::protobuf::internal::memswap<
-      PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.image_height_)
-      + sizeof(ChatInfoRq::_impl_.image_height_)
+      PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.large_thumbnail_height_)
+      + sizeof(ChatInfoRq::_impl_.large_thumbnail_height_)
       - PROTOBUF_FIELD_OFFSET(ChatInfoRq, _impl_.myid_)>(
           reinterpret_cast<char*>(&_impl_.myid_),
           reinterpret_cast<char*>(&other->_impl_.myid_));

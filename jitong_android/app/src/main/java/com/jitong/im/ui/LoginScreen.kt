@@ -57,7 +57,7 @@ fun LoginScreen(vm: MainViewModel) {
             }
             JitongField(tel, { tel = it.filter(Char::isDigit) }, "手机号", KeyboardType.Phone, maxLength = 11)
             Spacer(Modifier.height(12.dp))
-            JitongField(pass, { pass = it }, "密码（6～64 位）", KeyboardType.Password, true, 64)
+            JitongField(pass, { pass = it }, "密码（6～32 位）", KeyboardType.Password, true, 32)
             Spacer(Modifier.height(12.dp))
 
             if (tab == 0) {
