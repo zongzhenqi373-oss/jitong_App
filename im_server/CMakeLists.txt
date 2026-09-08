@@ -123,6 +123,8 @@ if(IM_SERVER_BUILD_TESTS)
     set(TEST_TLS_KEY ${TEST_TLS_DIR}/test_server.key)
     set(TEST_TLS_CA ${TEST_TLS_DIR}/ca.crt)
     set(TEST_APP_IDENTITY_KEY ${TEST_TLS_DIR}/test_app_identity_private.pem)
+    # 测试证书是短期材料，不能只按“文件存在”判断，否则构建目录保留几天后
+    # E2E会因证书过期在业务测试开始前失败。每次构建测试目标时重新生成。
     add_custom_target(test_tls_material
         COMMAND ${CMAKE_COMMAND} -E make_directory ${TEST_TLS_DIR}
         COMMAND ${OPENSSL_CLI} req -x509 -newkey rsa:2048 -sha256 -nodes
@@ -149,7 +151,20 @@ if(IM_SERVER_BUILD_TESTS)
     target_link_libraries(test_e2e PRIVATE im_server_lib client_core)
     target_include_directories(test_e2e PRIVATE ${ASIO_INCLUDE})
     add_test(NAME e2e COMMAND test_e2e)
+    # 完整业务 e2e 依赖尚未完成的 C++ ClientSecureChannel（P4）。不得在测试中
+    # 绕过服务端安全状态机；P4 完成后删除 DISABLED 并恢复全量业务链路。
     set_tests_properties(e2e PROPERTIES DISABLED TRUE)
+
+    add_executable(test_security_e2e tests/test_security_e2e.cpp)
+    add_dependencies(test_security_e2e test_tls_material)
+    target_compile_definitions(test_security_e2e PRIVATE
+        IM_SERVER_TEST_CERT="${TEST_TLS_CERT}"
+        IM_SERVER_TEST_KEY="${TEST_TLS_KEY}"
+        IM_SERVER_TEST_APP_IDENTITY_KEY="${TEST_APP_IDENTITY_KEY}"
+    )
+    target_link_libraries(test_security_e2e PRIVATE im_server_lib client_core)
+    target_include_directories(test_security_e2e PRIVATE ${ASIO_INCLUDE})
+    add_test(NAME security_e2e COMMAND test_security_e2e)
 
     add_executable(test_database_concurrency tests/test_database_concurrency.cpp)
     target_link_libraries(test_database_concurrency PRIVATE im_server_lib)

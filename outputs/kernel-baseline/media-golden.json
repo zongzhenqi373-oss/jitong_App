@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "source": "Android ImageCodec executable Golden",
+  "colorTolerance": 35,
+  "cases": [
+    {"id":"solid-white","width":320,"height":240,"expectedOriginal":[320,240],"expectedThumb":[320,240],"expectedLarge":[320,240],"color":"#FFFFFF"},
+    {"id":"ultra-wide","width":800,"height":108,"expectedOriginal":[800,108],"expectedThumb":[320,240],"expectedLarge":[800,108],"color":"#D02020"},
+    {"id":"ultra-tall","width":108,"height":800,"expectedOriginal":[108,800],"expectedThumb":[320,240],"expectedLarge":[108,800],"color":"#2050D0"},
+    {"id":"odd-dimensions","width":401,"height":301,"expectedOriginal":[400,300],"expectedThumb":[320,240],"expectedLarge":[400,300],"color":"#20C050"}
+  ]
+}

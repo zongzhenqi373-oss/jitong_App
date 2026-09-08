@@ -3,7 +3,9 @@
 #include "TcpTransport.h"
 #include "im.pb.h"
 #include "sha256.h"
+#if defined(CLIENT_CORE_WITH_MEDIA)
 #include "httplib.h"
+#endif
 
 #include <atomic>
 #include <chrono>
@@ -251,6 +253,7 @@ void ClientCore::sendRoamMsgRq(int peerId, std::int64_t beforeSeq, int limit)
     sendPacket(DEF_PROT_ROAM_MSG_RQ, rq.SerializeAsString());
 }
 
+#if defined(CLIENT_CORE_WITH_MEDIA)
 std::string ClientCore::uploadMedia(const std::string& localPath, int receiverId, bool isImage,
                                     const MediaProgress& onProgress)
 {
@@ -358,6 +361,7 @@ bool ClientCore::downloadMedia(const std::string& fileId, const std::string& des
     }
     return true;
 }
+#endif // CLIENT_CORE_WITH_MEDIA
 
 void ClientCore::sendFileMessage(int friId, const std::string& fileId, const std::string& fileName,
                                  std::int64_t size, const std::string& contentType,

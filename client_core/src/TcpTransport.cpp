@@ -26,7 +26,16 @@ TcpTransport::TcpTransport(
     }
 
     m_sslContext.set_verify_mode(asio::ssl::verify_peer);
-    m_sslContext.load_verify_file(m_caFile);
+    if (!m_caFile.empty()) {
+        m_sslContext.load_verify_file(m_caFile);
+    } else {
+        // 未指定 CA 文件时回退到系统默认信任库，而不是跳过证书校验。
+        // 原因：Android 上 ClientCore 可能在尚未拿到 CA 路径时就被构造（连接是后面的事），
+        // 空路径调用 load_verify_file 会直接抛 "No such file or directory"，
+        // 使内核连「创建句柄」都做不到。这里仍然保持 verify_peer，不做任何验证降级。
+        // P4 会改为随包分发 CA + SPKI Pinning，届时不再依赖系统库。
+        m_sslContext.set_default_verify_paths();
+    }
 
     m_stream.set_verify_mode(asio::ssl::verify_peer);
     m_stream.set_verify_callback(asio::ssl::host_name_verification(m_serverName));

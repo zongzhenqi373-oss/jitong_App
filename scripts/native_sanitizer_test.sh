@@ -7,7 +7,7 @@
 #   bash scripts/native_sanitizer_test.sh --server-only
 #   bash scripts/native_sanitizer_test.sh --with-macos-leaks
 #
-# 注意：服务端 e2e 会在本机绑定 24563 端口，运行前请关闭正在运行的 im_server。
+# 注意：客户端 integration 会绑定本机回环端口；受限沙箱中运行时需授权网络监听。
 # 此脚本覆盖 C/C++ 内存安全；Android/Kotlin 的对象泄漏请用 Android Profiler 或
 # LeakCanary 在模拟器/真机上验证，不能由 ASan 替代。
 
@@ -158,9 +158,11 @@ if [[ "$RUN_CLIENT" -eq 1 ]]; then
 fi
 
 if [[ "$RUN_SERVER" -eq 1 ]]; then
-  info '服务端 e2e 将启动测试服务并绑定 TCP 24563；若端口被占用，本项会失败。'
-  run_suite 'im_server（真实服务端 + 文件传输 e2e）' \
-    "$ROOT/im_server" "$ROOT/im_server/build-sanitize" '^e2e$'
+  # 完整业务 e2e 在 P4 C++ 安全通道完成前保持 DISABLED；security_e2e 真实启动
+  # TLS 服务并验证旧客户端跳过应用握手时 fail-close，不能把 0 tests 算作通过。
+  run_suite 'im_server（11 项单元/并发/协议 + 1 项安全 e2e；完整业务 e2e 未覆盖）' \
+    "$ROOT/im_server" "$ROOT/im_server/build-sanitize" \
+    '^(security_e2e|database_concurrency|token_service|login_rate_limiter|device_proof|db_write_queue|conversation_migration|protocol_router|ai_model_client|ai_context|ai_request_limiter|app_crypto)$'
   run_macos_leaks 'im_server' "$ROOT/im_server" "$ROOT/im_server/build-leaks" test_e2e
 fi
 

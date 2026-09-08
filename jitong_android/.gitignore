@@ -7,3 +7,7 @@ app/build/
 captures/
 .externalNativeBuild/
 .cxx/
+
+# Native 预编译依赖（OpenSSL/protobuf/abseil，约 340MB）
+# 由 scripts/build-openssl-android.sh / build-protobuf-android.sh 生成，不入仓
+app/src/main/cpp/third_party/

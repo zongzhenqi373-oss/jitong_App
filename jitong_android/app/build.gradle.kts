@@ -6,10 +6,42 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+// ---------------------------------------------------------------------------
+// Native 内核（QQNT 式厚内核）构建配置
+//
+// 开关：-Pjitong.native.enabled=false 可完全关闭 Native 构建，
+// 保证没有 NDK / 预编译依赖的机器仍能正常构建 App（灰度期可秒回退到 Legacy）。
+// ---------------------------------------------------------------------------
+val nativeEnabled: Boolean =
+    (project.findProperty("jitong.native.enabled") as String?)?.toBoolean() ?: true
+val hwasanEnabled: Boolean =
+    (project.findProperty("jitong.hwasan.enabled") as String?)?.toBoolean() ?: false
+
+/**
+ * 宿主机 protoc：交叉编译时必须用宿主机可执行文件生成 im.pb.cc，
+ * 不能复用 Android 目标机的 protobuf（那边只有库，没有可执行程序）。
+ */
+fun findHostProtoc(): String {
+    System.getenv("IM_PROTOC_EXECUTABLE")?.takeIf { it.isNotBlank() }?.let { return it }
+    listOf("/opt/homebrew/bin/protoc", "/usr/local/bin/protoc", "/usr/bin/protoc")
+        .firstOrNull { file(it).exists() }?.let { return it }
+    return "protoc" // 交给 PATH，由 CMake 的 find_program 兜底
+}
+
 android {
     namespace = "com.jitong.im"
     // avif-coder 的 AAR 以 API 36 编译；只提高编译 API，不改变 minSdk/targetSdk 行为。
     compileSdk = 36
+
+    if (nativeEnabled) {
+        ndkVersion = "27.3.13750724"
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/cpp/CMakeLists.txt")
+                version = "3.22.1"
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "com.jitong.im"
@@ -17,6 +49,33 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.5.0" // M4+：默认直连/头像/资料卡/图片收发（+面板）
+
+        // 默认 runner 是 JUnit3 的 InstrumentationTestRunner，无法识别 @RunWith(AndroidJUnit4)。
+        // Native 内核的生命周期/自检测试必须跑在 AndroidJUnitRunner 上。
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        if (nativeEnabled) {
+            ndk {
+                // 真机 arm64 + 模拟器 x86_64；不编 32 位
+                abiFilters += if (hwasanEnabled) listOf("arm64-v8a")
+                else listOf("arm64-v8a", "x86_64")
+            }
+            externalNativeBuild {
+                cmake {
+                    // C++17 与桌面端一致；exceptions 保留以便 JNI 层 catch 后转换
+                    cppFlags += listOf("-std=c++17", "-fexceptions")
+                    arguments += listOf(
+                        "-DANDROID_STL=${if (hwasanEnabled) "c++_shared" else "c++_static"}",
+                        "-DCMAKE_BUILD_TYPE=Release",
+                        // 宿主机 protoc（交叉编译必需）
+                        "-DIM_PROTOC_EXECUTABLE=${findHostProtoc()}",
+                        // 内核版本注入 .so，用于灰度期校验 Java/Native 版本匹配
+                        "-DJITONG_KERNEL_VERSION=${versionName}",
+                    )
+                    if (hwasanEnabled) arguments += "-DANDROID_SANITIZE=hwaddress"
+                }
+            }
+        }
     }
 
     compileOptions {
@@ -35,6 +94,20 @@ android {
                     srcDir("../../protocol")
                 }
         }
+        named("androidTest") {
+            // Golden JSON 保持在仓库级 outputs 中，Android/Native 共用同一事实源。
+            assets.srcDir("../../outputs/kernel-baseline")
+        }
+        if (hwasanEnabled) {
+            named("debug") {
+                resources.srcDir("src/hwasan/resources")
+            }
+        }
+    }
+
+    if (hwasanEnabled) {
+        // Android 14 的 HWASan 通过 wrap.sh 在独立进程启动时启用。
+        packaging.jniLibs.useLegacyPackaging = true
     }
 }
 
@@ -108,10 +181,15 @@ dependencies {
     // 使用 Maven Central 上保持相同 com.github.promeg.pinyinhelper API 的再发布版本。
     implementation("me.majiajie:tinypinyin:2.0.3")
 
-    // 图片消息编码统一改用 JPEG（系统解码稳定、颜色准确）。
-    // avif-coder 仅保留用于解码历史已发出的 AVIF 旧消息（其部分 ABI 存在 G/B 通道错位）。
+    // Android Bitmap 只有 AVIF 解码能力，没有 Bitmap.CompressFormat.AVIF；
+    // 使用 libavif/AOM JNI 编码器生成真正的 AVIF 字节。
     implementation("io.github.awxkee:avif-coder:2.2.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+
+    // Instrumented 测试：Native 内核自检与生命周期压力测试必须在真实 ART 上运行
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
 }

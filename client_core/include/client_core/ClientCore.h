@@ -147,6 +147,9 @@ public:
     void sendRoamMsgRq(int peerId, std::int64_t beforeSeq, int limit);
 
     // ---------------- 文件/图片传输（HTTP 文件服务，M7 起替代旧的分片协议） ----------------
+    // 组件开关 CLIENT_CORE_WITH_MEDIA（CMake: -DCLIENT_CORE_WITH_MEDIA=OFF）：
+    // 关闭时不编译 cpp-httplib 依赖的上传/下载实现，仅保留纯协议的 sendFileMessage。
+#if defined(CLIENT_CORE_WITH_MEDIA)
     // 进度回调：sentOrReceived/total 为字节数；仅供 UI 展示，可为空
     using MediaProgress = std::function<void(std::int64_t sentOrReceived, std::int64_t total)>;
 
@@ -157,6 +160,8 @@ public:
     // 从 HTTP 文件服务下载到本地路径（阻塞，边收边写不整体载入内存），成功返回 true
     bool downloadMedia(const std::string& fileId, const std::string& destPath,
                        const MediaProgress& onProgress = nullptr);
+#endif // CLIENT_CORE_WITH_MEDIA
+
     // uploadMedia 成功后，发一条 ChatInfoRq(type=IMAGE/FILE) 作为"已就绪"通知
     // （复用在线转发/离线补发链路）；contentType/sha256 取 uploadMedia 的返回值，
     // w/h 仅图片有意义，文件传 0
