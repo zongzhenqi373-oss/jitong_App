@@ -1,0 +1,52 @@
+{
+  "schema": "jitong-app-security-golden/v1",
+  "purpose": "Android / C++ / Server 三端应用层安全握手一致性测试向量（22.3.4）。仅含确定性测试向量，禁止写入生产私钥、Token、手机号或真实 sessionId。",
+  "security_version": 1,
+  "cipher_suite": "APP_CIPHER_X25519_ED25519_HKDF_SHA256_AES_256_GCM",
+  "notes": [
+    "全部 hex 均为小写、无前缀。",
+    "identity 为 Ed25519 服务端身份密钥；本向量的私钥种子为 32 字节 0x44（仅测试）。",
+    "server X25519 私钥种子 = 32 字节 0x55；server_nonce = 32 字节 0x66；session_id = 16 字节 0x77。",
+    "client X25519 私钥 = 32 字节 0x11；client_nonce = 32 字节 0x22；client_random_id = 16 字节 0x33。"
+  ],
+  "signing_transcript": {
+    "formula": "\"jitong-app-handshake-v1\" || u32be(len(clientPayload)) || clientPayload || u32be(security_version) || server_public(32) || server_nonce(32) || session_id(16) || u32be(key_id) || u32be(cipher_suite)",
+    "hash_alg": "SHA-256"
+  },
+  "key_schedule": {
+    "hkdf": "HKDF-SHA256",
+    "salt": "SHA256(client_nonce(32) || server_nonce(32))",
+    "info": "\"jitong-app-channel-v1\" || session_id(16) || transcript_hash(32)",
+    "okm_layout": "[0,32) C2S key | [32,64) S2C key | [64,68) C nonce prefix | [68,72) S nonce prefix | [72,104) C finished key | [104,136) S finished key"
+  },
+  "finished": {
+    "client_verify_data": "HMAC-SHA256(client_finished_key, transcript_hash)",
+    "server_verify_data": "HMAC-SHA256(server_finished_key, transcript_hash || client_verify_data)"
+  },
+  "frame": {
+    "nonce": "client_nonce_prefix(4) || u64be(sequence)",
+    "aad": "\"jitong-app-frame-v1\" || u32be(security_version) || session_id(16) || u64be(sequence)",
+    "aead": "AES-256-GCM，tag 固定 16 字节；密文明文为 protocol_type(4B 小端) || protobuf payload"
+  },
+  "vector": {
+    "key_id": 1,
+    "identity_public": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+    "client_private": "1111111111111111111111111111111111111111111111111111111111111111",
+    "client_nonce": "2222222222222222222222222222222222222222222222222222222222222222",
+    "client_random_id": "33333333333333333333333333333333",
+    "server_public": "38ab664bd86f77d7e66bdd9ae0792913a94fd8b33a1260027e4b46c1f4884c67",
+    "server_nonce": "6666666666666666666666666666666666666666666666666666666666666666",
+    "session_id": "77777777777777777777777777777777",
+    "transcript_hash": "aba53afe3eebb62067e2d54ed521873ac2790eae0568d394f46447da42be4887",
+    "client_to_server_key": "779b21a1de3dfce327691d0e9e8e9111213b6491111e24376e5505a2c5c84d82",
+    "server_to_client_key": "377a76f1ac5fcbc81528a8f4a062951fadb7740fe179a2f6801142195a799513",
+    "client_finished_key": "d061d725bec5bcd630bc1a9307cbeddd1267db512b8c69e044450acb8d88e05e",
+    "server_finished_key": "cd531ea6c40eb6578f787d7c8a504f58abc24b35c726e65a5041101fbb8113e3",
+    "client_verify_data": "1f8d8a3465c9fd0a035e48da2fb155727674bbf63483b257f6c7fea90f2b5f37",
+    "frame_sequence": 1,
+    "frame_inner_protocol": "DEF_PROT_HEARTBEAT_RQ",
+    "frame_inner_plaintext": "jitong-golden-payload",
+    "frame_ciphertext": "b98be06c69ac101bccd9f1e63894be6715376a07101fa646e2",
+    "frame_tag": "b96c47b0d4b35356ca231dfff5cad945"
+  }
+}

@@ -23,6 +23,9 @@ import com.jitong.im.ui.theme.PageBackground
 @Composable
 fun LoginScreen(vm: MainViewModel) {
     val tip by vm.loginTip.collectAsStateWithLifecycle()
+    // 认证进行中禁用按钮并显示进度，避免快速点击启动多个认证流程
+    val phase by vm.authPhase.collectAsStateWithLifecycle()
+    val authRunning = phase == AuthPhase.Connecting || phase == AuthPhase.Authenticating
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var nick by rememberSaveable { mutableStateOf("") }
     var tel by rememberSaveable { mutableStateOf(Prefs.tel.orEmpty()) }
@@ -70,9 +73,20 @@ fun LoginScreen(vm: MainViewModel) {
             }
             Button(
                 onClick = { if (tab == 0) vm.login(tel, pass, remember) else vm.register(nick, tel, pass) },
+                enabled = !authRunning, // 连接/认证中禁止重复提交
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
-            ) { Text(if (tab == 0) "登录" else "注册", fontWeight = FontWeight.SemiBold) }
+            ) {
+                if (authRunning) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = Color.White,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                }
+                Text(if (tab == 0) "登录" else "注册", fontWeight = FontWeight.SemiBold)
+            }
 
             if (tip.isNotEmpty()) {
                 Spacer(Modifier.height(14.dp))

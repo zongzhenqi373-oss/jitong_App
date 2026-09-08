@@ -117,6 +117,16 @@ endif()
 # ---------------- e2e 测试（真服务端 + client_core 真客户端回环） ----------------
 if(IM_SERVER_BUILD_TESTS)
     enable_testing()
+
+    # 测试用 assert() 做断言：Release 构建默认带 NDEBUG，会把断言整体编译掉，
+    # 表现为“测试瞬间通过”却几乎没有执行任何真实链路（假绿）。这里显式取消该宏，
+    # 与 client_core 的测试保持一致。
+    if(MSVC)
+        add_compile_options(/UNDEBUG)
+    else()
+        add_compile_options(-UNDEBUG)
+    endif()
+
     find_program(OPENSSL_CLI openssl REQUIRED)
     set(TEST_TLS_DIR ${CMAKE_BINARY_DIR}/config)
     set(TEST_TLS_CERT ${TEST_TLS_DIR}/test_server.crt)
@@ -151,9 +161,9 @@ if(IM_SERVER_BUILD_TESTS)
     target_link_libraries(test_e2e PRIVATE im_server_lib client_core)
     target_include_directories(test_e2e PRIVATE ${ASIO_INCLUDE})
     add_test(NAME e2e COMMAND test_e2e)
-    # 完整业务 e2e 依赖尚未完成的 C++ ClientSecureChannel（P4）。不得在测试中
-    # 绕过服务端安全状态机；P4 完成后删除 DISABLED 并恢复全量业务链路。
-    set_tests_properties(e2e PROPERTIES DISABLED TRUE)
+    # P4 已完成 C++ ClientSecureChannel，客户端现在会真正完成应用层安全握手，
+    # 因此恢复完整业务 e2e（不再 DISABLED，也没有任何绕过服务端状态机的开关）。
+    set_tests_properties(e2e PROPERTIES TIMEOUT 300)
 
     add_executable(test_security_e2e tests/test_security_e2e.cpp)
     add_dependencies(test_security_e2e test_tls_material)
@@ -208,5 +218,9 @@ if(IM_SERVER_BUILD_TESTS)
 
     add_executable(test_app_crypto tests/test_app_crypto.cpp)
     target_link_libraries(test_app_crypto PRIVATE im_server_lib)
+    # R2-F04：服务端也独立消费三端共享的 golden JSON（与 client_core 同一文件），
+    # 用服务端自己的加密原语复算密钥调度并比对，形成「客户端 + 服务端」两端共读。
+    target_compile_definitions(test_app_crypto PRIVATE
+        IM_SERVER_GOLDEN_JSON="${CMAKE_CURRENT_SOURCE_DIR}/../client_core/tests/golden/app-security-v1.json")
     add_test(NAME app_crypto COMMAND test_app_crypto)
 endif()

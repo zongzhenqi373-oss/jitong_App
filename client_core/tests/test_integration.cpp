@@ -19,6 +19,7 @@
 #include "client_core/ClientCore.h"
 #include "client_core/Protocol.h"
 #include "im.pb.h"
+#include "test_app_server.h"
 
 using namespace im;
 using namespace im::proto;
@@ -37,6 +38,9 @@ public:
     {
         m_sslContext.use_certificate_chain_file(CLIENT_CORE_TEST_CERT);
         m_sslContext.use_private_key_file(CLIENT_CORE_TEST_KEY, asio::ssl::context::pem);
+        if (!m_appCrypto.initIdentity()) {
+            throw std::runtime_error("测试服务端身份密钥初始化失败");
+        }
     }
 
     bool start(std::uint16_t& outPort)
@@ -57,6 +61,10 @@ public:
     std::atomic<int> heartbeatCount{0};
     // false 时不应答心跳（模拟半开连接，验证客户端超时判定）
     bool echoHeartbeat = true;
+
+    // 应用层安全通道（服务端侧）；客户端用它导出的公钥做 Ed25519 验签
+    im::test::TestAppServerCrypto m_appCrypto;
+    std::atomic<bool> appEstablished{false};
 
 private:
     void run()
@@ -88,6 +96,35 @@ private:
 
     bool handle(protType type, const char* payload, std::size_t payloadLen, SslSocket& sock)
     {
+        // ---- 应用层安全握手（P4 起服务端强制，必须在业务帧之前完成） ----
+        if (type == DEF_PROT_APP_CLIENT_HELLO) {
+            std::string out;
+            if (!m_appCrypto.handleClientHello(std::string(payload, payloadLen), out)) {
+                std::cerr << "[SRV] handleClientHello FAILED" << std::endl;
+                return false;
+            }
+            return sendPkt(sock, DEF_PROT_APP_SERVER_HELLO, out);
+        }
+        if (type == DEF_PROT_APP_CLIENT_FINISHED) {
+            std::string out;
+            if (!m_appCrypto.handleClientFinished(std::string(payload, payloadLen), out)) {
+                std::cerr << "[SRV] handleClientFinished FAILED" << std::endl;
+                return false;
+            }
+            const bool ok = sendPkt(sock, DEF_PROT_APP_SERVER_FINISHED, out);
+            // 之后的响应一律加密（AppFinished 本身仍按协议明文发送）
+            appEstablished = true;
+            return ok;
+        }
+        if (type == DEF_PROT_APP_ENCRYPTED_FRAME) {
+            protType innerType = 0;
+            std::string inner;
+            if (!m_appCrypto.decryptFromClient(std::string(payload, payloadLen), innerType, inner)) {
+                return false;
+            }
+            return handle(innerType, inner.data(), inner.size(), sock);
+        }
+
         switch (type) {
         case DEF_PROT_REGISTER_RQ: {
             im::proto::RegisterRs rs;
@@ -149,7 +186,21 @@ private:
     }
 
     // 组帧：4B 大端包长 + 4B 小端协议号 + pb payload
+    // 安全通道建立后，业务响应必须加密封装成 1040（与真服务端一致）
     bool sendPkt(SslSocket& sock, protType type, const std::string& payload)
+    {
+        if (appEstablished.load()) {
+            std::string frame;
+            if (!m_appCrypto.encryptToClient(type, payload, frame)) {
+                std::cerr << "[SRV] encryptToClient FAILED type=" << type << std::endl;
+                return false;
+            }
+            return rawSendPkt(sock, DEF_PROT_APP_ENCRYPTED_FRAME, frame);
+        }
+        return rawSendPkt(sock, type, payload);
+    }
+
+    bool rawSendPkt(SslSocket& sock, protType type, const std::string& payload)
     {
         const std::uint32_t bodyLen = static_cast<std::uint32_t>(4 + payload.size());
         std::vector<char> buf(4 + bodyLen);
@@ -225,13 +276,17 @@ int main()
 {
     // 测试证书 SAN 里带了 IP:127.0.0.1，直接用它做 tlsServerName，
     // 跟 connectToServer("127.0.0.1", ...) 的目标保持一致（回归 #7：两者以前是脱节的）
-    const im::ClientConfig testConfig{"127.0.0.1", CLIENT_CORE_TEST_CERT};
+    im::ClientConfig testConfig{"127.0.0.1", CLIENT_CORE_TEST_CERT};
 
     // ==================== 场景 A：正常登录/聊天/心跳保活/下线 ====================
     {
         FakeServer server;
         std::uint16_t port = 0;
         assert(server.start(port));
+
+        // 客户端必须用本测试服务端导出的身份公钥验签（key_id=1）
+        testConfig.identityKeys.clear();
+        testConfig.identityKeys[1] = server.m_appCrypto.identityPublic();
 
         RecordingEvents ev;
         ClientCore core(testConfig);
@@ -278,6 +333,9 @@ int main()
         server.echoHeartbeat = false; // 模拟半开连接：能发但收不到任何回包
         std::uint16_t port = 0;
         assert(server.start(port));
+
+        testConfig.identityKeys.clear();
+        testConfig.identityKeys[1] = server.m_appCrypto.identityPublic();
 
         RecordingEvents ev;
         ClientCore core(testConfig);

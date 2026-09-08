@@ -37,6 +37,7 @@ Bytes message(const std::string& operation, const Bytes& appSessionId,
     return out;
 }
 
+// 验证 P-256 签名，publicKeyDer 为 DER 编码的 SubjectPublicKeyInfo，signatureDer 为 DER 编码的 ECDSA-Sig-Value
 bool verifyP256(const Bytes& publicKeyDer, const Bytes& signedMessage, const Bytes& signatureDer)
 {
     if (publicKeyDer.empty() || publicKeyDer.size() > 512 || signatureDer.empty() || signatureDer.size() > 144)

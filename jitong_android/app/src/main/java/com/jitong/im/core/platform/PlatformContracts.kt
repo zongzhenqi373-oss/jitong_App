@@ -53,7 +53,26 @@ interface FileProvider {
 interface ImagePlatform {
     fun probe(handle: PlatformFileHandle): PlatformImageInfo?
     fun decode(handle: PlatformFileHandle, options: PlatformDecodeOptions): ByteArray?
-    /** @return 编码后的 AVIF 字节；失败返回 null。像素格式 RGBA8，行主序。 */
+    /**
+     * 编码 JPEG —— **发送侧主出口**。
+     *
+     * 与 `util/ImageCodec` 保持同一策略：客户端对外产物一律 JPEG，
+     * 规避本地 AVIF 编解码偏色（见 `util/ImagePipelineConfig` 的说明）。
+     *
+     * @return 编码后的 JPEG 字节；失败返回 null。像素格式 RGBA8，行主序。
+     */
+    fun encodeJpeg(rgba8: ByteArray, width: Int, height: Int, options: PlatformEncodeOptions): ByteArray?
+
+    /**
+     * 编码 AVIF。**仅用于「传输中间格式」的转码/归档场景**，不是发送侧出口。
+     *
+     * ⚠️ 已知缺陷：`avif-coder` 在部分 ABI/设备上解码出现 **G/B 通道错位**，
+     * `Round11ClosureTest` 实测纯白回读为 `255,172,255`（G 掉到 172）。
+     * 已验证与 `surfaceMode`（RGB/AUTO）、`chromaSubsampling`(YUV444) 无关，
+     * 属库本身问题。P10 若要启用 AVIF 中间格式，必须先解决该缺陷。
+     *
+     * @return 编码后的 AVIF 字节；失败返回 null。像素格式 RGBA8，行主序。
+     */
     fun encodeAvif(rgba8: ByteArray, width: Int, height: Int, options: PlatformEncodeOptions): ByteArray?
 }
 

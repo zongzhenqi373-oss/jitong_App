@@ -6,12 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.jitong.im.data.ChatStore
 import com.jitong.im.data.Prefs
 import com.jitong.im.data.crypto.DbKeyManager
+import com.jitong.im.data.crypto.TokenVault
 import com.jitong.im.data.db.ConversationEntity
 import com.jitong.im.data.db.MessageEntity
 import com.jitong.im.net.ImClient
 import com.jitong.im.net.HttpMediaClient
 import com.jitong.im.net.Protocol
 import com.jitong.im.net.sha256Hex
+import com.jitong.im.util.ImageCodec
 import im.proto.Im
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -153,6 +155,64 @@ class MainViewModel : ViewModel() {
     private val refreshMutex = kotlinx.coroutines.sync.Mutex()
     private var refreshRequestInFlight = false
 
+    /**
+     * 认证入口统一收口：登录、注册、token 登录、断线重连共用同一个单飞流程与阶段状态机，
+     * 避免快速点击/重连并发造成重复连接、本地凭证被并发清写和 UI 状态竞争。
+     */
+    val auth = AuthCoordinator(viewModelScope)
+    val authPhase: StateFlow<AuthPhase> = auth.phase
+    /** 同步等待一次 refresh 结果的句柄：重连流程需要在单飞块内拿到新 token 再登录。 */
+    private var refreshAwaiter: kotlinx.coroutines.CompletableDeferred<TokenVault.TokenSession?>? = null
+
+    /**
+     * 刷新一次 token 并同步返回结果；已有刷新在飞则不重复发起。
+     * 与事件回调里的 refreshRequestInFlight 共用同一把锁，保证单飞。
+     */
+    private suspend fun refreshTokenOnce(session: TokenVault.TokenSession): TokenVault.TokenSession? {
+        val nowSeconds = System.currentTimeMillis() / 1000L
+        // 本地不存在登录记录、refresh token 为空或已过期时直接失败，避免一次必然失败的网络往返。
+        // 调用方仍负责清理登录态并引导用户重新登录。
+        if (session.refreshToken.isBlank() || session.refreshExpiresAt <= nowSeconds ||
+            Prefs.loadTokenSession() == null) {
+            return null
+        }
+        val deferred = obtainRefreshDeferred(session)
+        // 必须在锁外等待：刷新结果回调需要同一把锁来 complete，锁内等待会死锁
+        return deferred.await()
+    }
+
+    /** 在互斥锁内决定本次刷新是“复用”还是“发起”，返回最终等待的句柄。 */
+    private suspend fun obtainRefreshDeferred(session: TokenVault.TokenSession): kotlinx.coroutines.CompletableDeferred<TokenVault.TokenSession?> {
+        // 在锁内分支：复用已存在的 awaiter 或新建并发去 refresh；锁外返回最终句柄并 await。
+        var awaiter: kotlinx.coroutines.CompletableDeferred<TokenVault.TokenSession?>? = null
+        var launchError: Throwable? = null
+        refreshMutex.withLock {
+            val existing = refreshAwaiter
+            if (existing != null) {
+                awaiter = existing
+                return@withLock
+            }
+            val requestId = Prefs.pendingRefreshRequestId ?: UUID.randomUUID().toString().also {
+                Prefs.pendingRefreshRequestId = it
+            }
+            val newDeferred = kotlinx.coroutines.CompletableDeferred<TokenVault.TokenSession?>()
+            refreshAwaiter = newDeferred
+            refreshRequestInFlight = true
+            try {
+                client.refreshToken(session, Prefs.deviceId, requestId)
+                awaiter = newDeferred
+            } catch (error: Throwable) {
+                refreshRequestInFlight = false
+                refreshAwaiter = null
+                newDeferred.complete(null)
+                awaiter = newDeferred
+                launchError = error
+            }
+        }
+        launchError?.let { throw it }
+        return requireNotNull(awaiter) { "refresh awaiter not set" }
+    }
+
     /** 漫游分页状态：每会话已加载最小 seq（上拉游标）、是否还有更早、是否正在加载（防抖） */
     private val loadedMinSeq = mutableMapOf<Int, Long>()
     private val roamHasMore = mutableMapOf<Int, Boolean>()
@@ -192,20 +252,25 @@ class MainViewModel : ViewModel() {
             _loginTip.value = validationError
             return
         }
+        if (auth.isRunning) return // 已有认证流程在飞，忽略重复点击，不新建连接
         lastTel = normalizedTel
         lastHash = sha256Hex(pass) // 仅供本地 DB 密钥派生使用
-        Prefs.clearTokenSession()  // 显式密码登录视为开始一个新的认证会话
-        Prefs.pendingRefreshRequestId = null
         pendingRemember = remember // 登录成功后据此决定是否持久化账号密码
         pendingPass = pass         // 记住时保存的明文密码（用于登录页回填）
-        viewModelScope.launch {
+        // 显式密码登录视为开始一个新的认证会话；清凭证必须放在单飞流程内部，
+        // 否则快速点击会把上一次已登录成功的 token 清掉。
+        auth.submit {
+            Prefs.clearTokenSession()
+            Prefs.pendingRefreshRequestId = null
             _loginTip.value = "连接服务器…"
             if (!client.connect(ImClient.DEFAULT_HOST)) {
                 _loginTip.value = "连接失败，请确认 im_server 已启动"
-                return@launch
+                auth.onCompleted(false)
+                return@submit
             }
             _loginTip.value = "登录中…"
-            client.login(tel = normalizedTel, pass = pass, deviceId = Prefs.deviceId,)
+            auth.markAuthenticating()
+            client.login(tel = normalizedTel, pass = pass, deviceId = Prefs.deviceId)
         }
     }
 
@@ -225,13 +290,16 @@ class MainViewModel : ViewModel() {
             _loginTip.value = validationError
             return
         }
-        viewModelScope.launch {
+        if (auth.isRunning) return // 已有认证流程在飞，忽略重复点击
+        auth.submit {
             _loginTip.value = "连接服务器…"
             if (!client.connect(ImClient.DEFAULT_HOST)) {
                 _loginTip.value = "连接失败，请确认 im_server 已启动"
-                return@launch
+                auth.onCompleted(false)
+                return@submit
             }
             _loginTip.value = "注册中…"
+            auth.markAuthenticating()
             client.register(normalizedNick, normalizedTel, pass)
         }
     }
@@ -246,15 +314,10 @@ class MainViewModel : ViewModel() {
 
     // ---------------- 导航 ----------------
 
-    fun openChat(friend: Friend) = openChatInternal(friend, null)
-
-    /** 从全局搜索结果打开聊天并定位到指定消息。 */
-    fun openChatAt(friend: Friend, msgId: String) = openChatInternal(friend, msgId)
-
-    private fun openChatInternal(friend: Friend, jumpToMsgId: String?) {
+    fun openChat(friend: Friend) {
         clearAiReply(cancelRemote = true)
         clearConversationSearch()
-        _chatJumpTarget.value = jumpToMsgId
+        _chatJumpTarget.value = null
         _chatPeer.value = friend
         _screen.value = Screen.Chat
         // 进入会话清零未读（库 + 内存）
@@ -446,20 +509,21 @@ class MainViewModel : ViewModel() {
         if (bytes.isEmpty()) return
         val msgId = UUID.randomUUID().toString()
         val ctx = appContext ?: run { notify("应用尚未初始化"); return }
-        val local = java.io.File(ctx.filesDir, "img/outgoing/$msgId.jpg").also {
+        val local = java.io.File(ctx.filesDir, "img/outgoing/$msgId${ImageCodec.OUTPUT_EXT}").also {
             it.parentFile?.mkdirs(); it.writeBytes(bytes)
         }
-        val thumb = java.io.File(ctx.filesDir, "img/outgoing/${msgId}_thumb.jpg").also {
+        val thumb = java.io.File(ctx.filesDir, "img/outgoing/${msgId}_thumb${ImageCodec.OUTPUT_EXT}").also {
             it.writeBytes(thumbnail)
         }
-        val largeThumb = java.io.File(ctx.filesDir, "img/outgoing/${msgId}_large.jpg").also {
+        val largeThumb = java.io.File(ctx.filesDir, "img/outgoing/${msgId}_large${ImageCodec.OUTPUT_EXT}").also {
             it.writeBytes(largeThumbnail)
         }
         append(
             ChatMessage(
                 msgId, peer.id, fromMe = true, kind = MsgKind.IMAGE,
                 imageBytes = bytes, imgW = w, imgH = h, localPath = local.absolutePath,
-                fileName = "$msgId.jpg", fileSize = local.length(), contentType = "image/jpeg",
+                fileName = "$msgId${ImageCodec.OUTPUT_EXT}", fileSize = local.length(),
+                contentType = ImageCodec.OUTPUT_MIME,
                 thumbnailPath = thumb.absolutePath, thumbnailSize = thumb.length(),
                 thumbnailW = thumbW, thumbnailH = thumbH,
                 largeThumbnailPath = largeThumb.absolutePath,
@@ -469,7 +533,7 @@ class MainViewModel : ViewModel() {
             ),
             incrUnread = false,
         )
-        uploadMedia(msgId, Upload(local, peer.id, "$msgId.jpg", local.length(), true, w, h,
+        uploadMedia(msgId, Upload(local, peer.id, "$msgId${ImageCodec.OUTPUT_EXT}", local.length(), true, w, h,
             thumb, thumbW, thumbH, largeThumb, largeThumbW, largeThumbH))
     }
 
@@ -600,13 +664,13 @@ class MainViewModel : ViewModel() {
         uploads[msgId] = up
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
-                val mime = if (up.isImage) "image/jpeg" else
+                val mime = if (up.isImage) ImageCodec.OUTPUT_MIME else
                     java.net.URLConnection.guessContentTypeFromName(up.name) ?: "application/octet-stream"
                 val thumbnailResult = up.thumbnail?.let {
-                    mediaClient.upload(it, up.peerId, "${msgId}_thumb.jpg", "image/jpeg")
+                    mediaClient.upload(it, up.peerId, "${msgId}_thumb${ImageCodec.OUTPUT_EXT}", ImageCodec.OUTPUT_MIME)
                 }
                 val largeThumbnailResult = up.largeThumbnail?.let {
-                    mediaClient.upload(it, up.peerId, "${msgId}_large.jpg", "image/jpeg")
+                    mediaClient.upload(it, up.peerId, "${msgId}_large${ImageCodec.OUTPUT_EXT}", ImageCodec.OUTPUT_MIME)
                 }
                 val result = mediaClient.upload(up.file, up.peerId, up.name, mime) { sent, total ->
                     val percent = if (total > 0) (sent * 100 / total).toInt() else 0
@@ -657,20 +721,49 @@ class MainViewModel : ViewModel() {
 
     private val downloads = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
+    /**
+     * 下载产物归一化：把 AVIF **传输中间格式**转码成 JPEG，并删除 AVIF 源文件。
+     *
+     * 对应服务端架平实时压 AVIF 的场景 —— 用户看到的永远是 JPEG。
+     *
+     * **全链路降级**：转码失败时不抛异常，直接保留原文件返回，
+     * 由展示端 `ImageCodec.decodeForDisplay` 的 AVIF 兜底解码处理。
+     * 绝不会因为转码失败而让用户看到"下载失败"。
+     *
+     * @return 最终应使用的文件（成功转码时为新 JPEG，否则是原文件）
+     */
+    private fun normalizeDownloadedImage(file: java.io.File): java.io.File {
+        if (!file.isFile) return file
+        val head = runCatching {
+            file.inputStream().use { it.readNBytes(12) }
+        }.getOrNull() ?: return file
+        if (!ImageCodec.isAvifBytes(head)) return file
+
+        val jpeg = java.io.File(file.parentFile, "${file.nameWithoutExtension}${ImageCodec.OUTPUT_EXT}")
+        return if (ImageCodec.transcodeAvifToJpeg(file, jpeg)) {
+            // 源与目标同名时（下载路径就是 .jpg）不能删，否则把刚转好的文件删掉
+            if (jpeg.absolutePath != file.absolutePath) file.delete()
+            jpeg
+        } else {
+            file
+        }
+    }
+
     /** 图片消息优先只拉 320×240 缩略图，避免会话列表/聊天首屏下载原图。 */
     private fun downloadThumbnail(msg: ChatMessage) {
         val ctx = appContext ?: return
         val fileId = msg.thumbnailFileId
         if (fileId.isBlank() || !downloads.add(fileId)) return
-        val destination = java.io.File(ctx.filesDir, "img/thumb/${msg.msgId}.jpg")
+        val destination = java.io.File(ctx.filesDir, "img/thumb/${msg.msgId}${ImageCodec.OUTPUT_EXT}")
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 mediaClient.download(fileId, destination, msg.thumbnailSha256)
+                val final = normalizeDownloadedImage(destination)
                 val current = _messages.value[msg.peerId].orEmpty().map {
-                    if (it.msgId == msg.msgId) it.copy(thumbnailPath = destination.absolutePath) else it
+                    if (it.msgId == msg.msgId) it.copy(thumbnailPath = final.absolutePath) else it
                 }
                 _messages.value = _messages.value + (msg.peerId to current)
-                store?.updateThumbnail(client.myId, msg.msgId, fileId, destination.absolutePath,
+                store?.updateThumbnail(client.myId, msg.msgId, fileId, final.absolutePath,
                     msg.thumbnailSize, msg.thumbnailSha256, msg.thumbnailW, msg.thumbnailH)
             }.onFailure { notify("缩略图下载失败：${it.message ?: it.javaClass.simpleName}") }
             downloads.remove(fileId)
@@ -684,16 +777,17 @@ class MainViewModel : ViewModel() {
             msg.largeThumbnailPath?.let { java.io.File(it).isFile } == true) return
         val fileId = msg.largeThumbnailFileId
         if (!downloads.add(fileId)) return
-        val destination = java.io.File(ctx.filesDir, "img/large/${msg.msgId}.jpg")
+        val destination = java.io.File(ctx.filesDir, "img/large/${msg.msgId}${ImageCodec.OUTPUT_EXT}")
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 mediaClient.download(fileId, destination, msg.largeThumbnailSha256)
+                val final = normalizeDownloadedImage(destination)
                 val current = _messages.value[msg.peerId].orEmpty().map {
-                    if (it.msgId == msg.msgId) it.copy(largeThumbnailPath = destination.absolutePath) else it
+                    if (it.msgId == msg.msgId) it.copy(largeThumbnailPath = final.absolutePath) else it
                 }
                 _messages.value = _messages.value + (msg.peerId to current)
                 store?.updateLargeThumbnail(client.myId, msg.msgId, fileId,
-                    destination.absolutePath, msg.largeThumbnailSize, msg.largeThumbnailSha256,
+                    final.absolutePath, msg.largeThumbnailSize, msg.largeThumbnailSha256,
                     msg.largeThumbnailW, msg.largeThumbnailH)
             }
             downloads.remove(fileId)
@@ -724,7 +818,8 @@ class MainViewModel : ViewModel() {
                 }
             }.onSuccess {
                 downloads.remove(effectiveFileId)
-                updateFileLocalPath(msg.peerId, msg.msgId, finalFile.absolutePath)
+                val normalized = normalizeDownloadedImage(finalFile)
+                updateFileLocalPath(msg.peerId, msg.msgId, normalized.absolutePath)
                 updateFileStatus(msg.peerId, msg.msgId, completedStatus)
             }.onFailure {
                 downloads.remove(effectiveFileId)
@@ -740,6 +835,8 @@ class MainViewModel : ViewModel() {
         client.events.collect { e ->
             when (e) {
                 is ImClient.Event.RegisterResult -> {
+                    // 注册不属于登录流程，结束单飞占位，允许用户重试或继续登录
+                    auth.onRegistrationCompleted(e.result == Protocol.REGISTER_SUCC)
                     _loginTip.value = when (e.result) {
                         Protocol.REGISTER_SUCC -> "注册成功，请登录"
                         Protocol.REGISTER_NICK_EXIT -> "注册失败：昵称已存在"
@@ -751,6 +848,7 @@ class MainViewModel : ViewModel() {
 
                 is ImClient.Event.LoginResult -> when (e.result) {
                     Protocol.LOGIN_SUCCESS -> {
+                        auth.onCompleted(true)
                         _loginTip.value = ""
                         e.tokenSession?.let(Prefs::saveTokenSession)
                         // 登录成功：结束任何进行中的重连、清零退避状态
@@ -784,16 +882,31 @@ class MainViewModel : ViewModel() {
                         viewModelScope.launch { client.roamConversations() }
                         loadFriendRequests()
                     }
-                    Protocol.LOGIN_NOTEXIT -> _loginTip.value = "登录失败：用户不存在"
-                    Protocol.LOGIN_INVALID -> _loginTip.value = "登录失败：手机号或密码格式不正确"
+                    Protocol.LOGIN_NOTEXIT -> {
+                        auth.onCompleted(false)
+                        _loginTip.value = "登录失败：用户不存在"
+                    }
+                    Protocol.LOGIN_INVALID -> {
+                        auth.onCompleted(false)
+                        _loginTip.value = "登录失败：手机号或密码格式不正确"
+                    }
+                    Protocol.LOGIN_PASSERROR -> {
+                        auth.onCompleted(false)
+                        _loginTip.value = "登录失败：密码错误"
+                    }
                     Protocol.LOGIN_RATE_LIMITED -> {
+                        auth.onCompleted(false)
                         _loginTip.value = "登录尝试次数过多，请稍后再试"
                         _toast.emit("登录过于频繁，请稍后再试")
                     }
-                    else -> _loginTip.value = "登录失败：密码错误"
+                    else -> {
+                        auth.onCompleted(false)
+                        _loginTip.value = "登录失败：密码错误"
+                    }
                 }
 
                 is ImClient.Event.TokenLoginResult -> {
+                    auth.onCompleted(e.result == Protocol.LOGIN_SUCCESS)
                     if (e.result == Protocol.LOGIN_SUCCESS) {
                         reconnecting = false
                         reconnectJob?.cancel()
@@ -809,14 +922,16 @@ class MainViewModel : ViewModel() {
                 }
 
                 is ImClient.Event.TokenRefreshResult -> {
-                    refreshMutex.withLock { refreshRequestInFlight = false }
                     val refreshed = e.tokenSession
+                    refreshMutex.withLock {
+                        refreshRequestInFlight = false
+                        // 唤醒同步等待方（重连流程）；失败也唤醒，交由调用方走回登录页
+                        refreshAwaiter?.complete(if (e.result == Protocol.REFRESH_TOKEN_SUCCESS) refreshed else null)
+                        refreshAwaiter = null
+                    }
                     if (e.result == Protocol.REFRESH_TOKEN_SUCCESS && refreshed != null) {
                         Prefs.saveTokenSession(refreshed)
                         Prefs.pendingRefreshRequestId = null
-                        viewModelScope.launch {
-                            client.loginWithToken(refreshed, Prefs.deviceId)
-                        }
                     } else {
                         Prefs.pendingRefreshRequestId = null
                         Prefs.clearTokenSession()
@@ -1075,7 +1190,14 @@ class MainViewModel : ViewModel() {
                 ImClient.Event.Disconnected -> {
                     clearAiReply(cancelRemote = false)
                     // 连接断开意味着本次请求不可能再收到响应；允许重连后用同一 requestId 重试。
-                    refreshMutex.withLock { refreshRequestInFlight = false }
+                    refreshMutex.withLock {
+                        refreshRequestInFlight = false
+                        // 原连接不可能再返回 RefreshTokenRs，不能让下一轮重连复用失效 Deferred。
+                        // pendingRefreshRequestId 刻意保留，重连后仍可用同一 requestId 向服务端幂等重试。
+                        refreshAwaiter?.cancel()
+                        refreshAwaiter = null
+                    }
+                    auth.cancel() // 连接已断，释放单飞，重连/重新登录可再次提交
                     if (!expectDisconnect && _screen.value != Screen.Login) {
                         if (Prefs.loadTokenSession() != null) {
                             startReconnect()
@@ -1287,33 +1409,37 @@ class MainViewModel : ViewModel() {
                 client.disconnect() // 清掉可能的半开连接
                 val ok = runCatching { client.connect(ImClient.DEFAULT_HOST) }.getOrDefault(false)
                 if (ok) {
-                    val session = Prefs.loadTokenSession() ?: run {
-                        resetToLogin()
-                        return@launch
-                    }
-                    val nowSeconds = System.currentTimeMillis() / 1000L
-                    if (session.accessExpiresAt > nowSeconds + 30L) {
-                        client.loginWithToken(session, Prefs.deviceId)
-                    } else if (session.refreshExpiresAt > nowSeconds) {
-                        refreshMutex.withLock {
-                            if (refreshRequestInFlight) return@withLock
-                            val requestId = Prefs.pendingRefreshRequestId
-                                ?: UUID.randomUUID().toString().also {
-                                    Prefs.pendingRefreshRequestId = it
+                    // token 认证与手动登录共用同一个单飞流程，避免重连与登录并发建连。
+                    // 若此刻已有认证在飞（例如用户正在手动登录），交给它完成，重连继续退避等待。
+                    if (!auth.isRunning) {
+                        val session = Prefs.loadTokenSession() ?: run {
+                            resetToLogin()
+                            return@launch
+                        }
+                        val nowSeconds = System.currentTimeMillis() / 1000L
+                        auth.submit {
+                            when {
+                                session.accessExpiresAt > nowSeconds + 30L -> {
+                                    auth.markAuthenticating()
+                                    client.loginWithToken(session, Prefs.deviceId)
                                 }
-                            refreshRequestInFlight = true
-                            try {
-                                client.refreshToken(session, Prefs.deviceId, requestId)
-                            } catch (error: Throwable) {
-                                refreshRequestInFlight = false
-                                throw error
+                                session.refreshExpiresAt > nowSeconds -> {
+                                    val refreshed = runCatching { refreshTokenOnce(session) }.getOrNull()
+                                    if (refreshed != null) {
+                                        auth.markAuthenticating()
+                                        client.loginWithToken(refreshed, Prefs.deviceId)
+                                    } else {
+                                        auth.onCompleted(false)
+                                    }
+                                }
+                                else -> {
+                                    Prefs.clearTokenSession()
+                                    _toast.emit("登录状态已过期，请重新登录")
+                                    auth.onCompleted(false)
+                                    resetToLogin()
+                                }
                             }
                         }
-                    } else {
-                        Prefs.clearTokenSession()
-                        _toast.emit("登录状态已过期，请重新登录")
-                        resetToLogin()
-                        return@launch
                     }
                     kotlinx.coroutines.delay(3000L)
                     if (!reconnecting) return@launch // 登录成功已清零
@@ -1331,8 +1457,11 @@ class MainViewModel : ViewModel() {
 
     private fun resetToLogin() {
         clearAiReply(cancelRemote = false)
+        auth.cancel() // 回到登录页时释放单飞，允许重新登录
         reconnecting = false
         refreshRequestInFlight = false
+        refreshAwaiter?.cancel()
+        refreshAwaiter = null
         reconnectJob?.cancel()
         reconnectJob = null
         store?.close()

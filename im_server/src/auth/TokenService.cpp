@@ -11,6 +11,7 @@ namespace imsrv {
 
 namespace {
 
+// 将二进制数据转换为十六进制字符串
 std::string toHex(
     const unsigned char* data,
     std::size_t len
@@ -36,6 +37,7 @@ TokenService::TokenService(Database& db)
 {
 }
 
+// 生成随机Token
 std::string TokenService::randomToken()
 {
     unsigned char bytes[32];
@@ -51,12 +53,14 @@ std::string TokenService::randomToken()
     return toHex(bytes, sizeof(bytes));
 }
 
+// 计算Token的哈希值
 std::string TokenService::tokenHash(
     const std::string& token
 ) {
     unsigned char digest[EVP_MAX_MD_SIZE];
     unsigned int digestLen = 0;
 
+    // 创建上下文
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
     if (!ctx) {
         throw std::runtime_error(
@@ -64,22 +68,11 @@ std::string TokenService::tokenHash(
         );
     }
 
+    // 计算哈希
     const bool ok =
-        EVP_DigestInit_ex(
-            ctx,
-            EVP_sha256(),
-            nullptr
-        ) == 1 &&
-        EVP_DigestUpdate(
-            ctx,
-            token.data(),
-            token.size()
-        ) == 1 &&
-        EVP_DigestFinal_ex(
-            ctx,
-            digest,
-            &digestLen
-        ) == 1;
+        EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) == 1 &&
+        EVP_DigestUpdate(ctx, token.data(), token.size()) == 1 &&
+        EVP_DigestFinal_ex(ctx, digest, &digestLen) == 1;
 
     EVP_MD_CTX_free(ctx);
 
@@ -92,6 +85,7 @@ std::string TokenService::tokenHash(
     return toHex(digest, digestLen);
 }
 
+// 颁发一组新的 Token（access + refresh），并在数据库中创建对应的 AuthSession 记录
 TokenPair TokenService::issue(
     int userId,
     const std::string& deviceId
@@ -130,6 +124,7 @@ TokenPair TokenService::issue(
     return pair;
 }
 
+// 验证访问Token
 bool TokenService::validateAccess(
     const std::string& token, const std::string& sessionId,
     const std::string& deviceId, int& outUserId,
@@ -148,6 +143,7 @@ bool TokenService::validateAccess(
     return true;
 }
 
+// 旋转刷新Token
 bool TokenService::rotateRefresh(
     const std::string& refreshToken, const std::string& deviceId,
     const std::string& requestId, TokenPair& outPair, int& outRevokedUserId)

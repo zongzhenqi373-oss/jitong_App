@@ -78,21 +78,59 @@ GET /api/v1/download/{fileId}
 
 ## 4. 图片流水线（`util/ImageCodec.kt`）
 
+### 4.0 偏色规避策略（2026-09-08 变更，QQNT 式工程规避）
+
+**变更**：发送侧三档产物由 AVIF 改为 **JPEG**；AVIF 降级为「仅传输中间格式」。
+
+| | 变更前 | 变更后 |
+|---|---|---|
+| 发送侧编码 | AVIF(q100, YUV444, lossless chroma) | **JPEG(原图 90 / 大缩略图 85 / 小缩略图 82)** |
+| 发送侧 MIME | `image/avif` | **`image/jpeg`** |
+| 文件扩展名 | `.avif` | **`.jpg`** |
+| AVIF 角色 | 端到端格式（上传、存储、展示） | **仅传输中间格式**（下载到后转 JPEG 并删除源文件） |
+| 奇数宽高 | 裁掉 1px 取偶（avif-coder 要求） | **不裁**（JPEG 无此限制） |
+
+**为什么**：本地编 AVIF 是偏色根因 —— `avif-coder` 的 lossless chroma 在部分 ABI 上
+解码出现 G/B 通道错位。2026-09-08 门禁首次运行即捕获：**白色回读 `255,172,255`**。
+
+**修复后实测**（`MediaGoldenTest`，容差从 35 收紧到 8 后仍全绿）：
+
+```text
+solid-white/original       expected=#FFFFFFFF  actual=#FFFFFFFF   (偏差 0)
+ultra-wide/original        expected=#FFD02020  actual=#FFD02020   (偏差 0)
+ultra-tall/original        expected=#FF2050D0  actual=#FF2050D0   (偏差 0)
+odd-dimensions/original    expected=#FF20C050  actual=#FF1FC050   (偏差 1，JPEG q90 量化)
+```
+
+**这套方案防什么 / 不防什么**
+
+- ✅ 防「量化损失 + 色彩空间往返」这类**可控**偏色：统一落到 8bit sRGB SDR；
+  编码前只做一次必要的色彩定点（`ensureEncodable` 在已满足时零拷贝），杜绝多次 RGB 往返累积误差。
+- ❌ **不做** Display P3 / HDR / 10bit 的保真：这类输入统一转换到 sRGB，属有意的信息损失。
+  要覆盖那类场景需给转码接口补 nclx/ICC 出入参，并让输出 JPEG 携带正确色彩配置文件
+  （`ColorTransferParams` 已定义、`JpegIcc` 已实现写入，真正保真需 NDK 层 libavif + libjpeg-turbo，P10）。
+
+**关于「YUV 直转」**：`Bitmap.compress(JPEG)` 由 libjpeg-turbo 完成，输入是 RGBA，
+Kotlin/Bitmap 层**无法**做到无 RGB 往返的 YUV 直转。当前把往返压缩到唯一一次；
+真正的直连需要 NDK 层 libavif → libjpeg-turbo（P10，接口已预留）。
+
+**远程开关**：`ImagePipelineConfig.avifTransportEnabled`（默认关）+ 机型黑名单，
+命中黑名单的机型强制走常规下载，不出问题可远程一键关闭 AVIF 链路。
+
 ### 4.1 常量
 
 ```text
 MAX_ORIGINAL_EDGE     = 4096      # 原图长边上限
-AVIF_QUALITY          = 100       # 原图 AVIF 质量
-THUMB_QUALITY         = 82        # 小缩略图质量
+JPEG_QUALITY_ORIGINAL     = 90    # 原图 JPEG 质量（ImagePipelineConfig）
+JPEG_QUALITY_LARGE_THUMB  = 85    # 大缩略图质量
+JPEG_QUALITY_THUMB        = 82    # 小缩略图质量
 THUMB_W x THUMB_H     = 320 x 240 # 小缩略图固定尺寸（4:3）
 LARGE_THUMB_EDGE      = 1280      # 大缩略图长边
-LARGE_THUMB_QUALITY   = 95
+OUTPUT_MIME           = "image/jpeg"
+OUTPUT_EXT            = ".jpg"
 ```
 
-编码参数（三档一致）：`preciseMode = LOSSY`、`surfaceMode = RGB`、`chromaSubsampling = YUV444`
-
-> 选型原因（代码注释）：lossless chroma 在部分 ABI/设备解码出现 G/B 通道错位（整图绿/洋红），
-> 故用 q100 + YUV444 走标准 YUV 路径换取兼容性。
+质量常量统一放在 `util/ImagePipelineConfig.kt`，避免编码参数散落多处导致两端不一致。
 
 ### 4.2 流程
 
@@ -103,22 +141,45 @@ Uri → openInputStream
   ③ 解码：inPreferredConfig = ARGB_8888，inPreferredColorSpace = SRGB
   ④ stripHdrGainmap()：Android 14+ 且 hasGainmap → gainmap = null（去 Ultra HDR 增益图）
   ⑤ 原图缩放：scale = min(1f, 4096 / max(w,h))，低于 1 才缩放
-  ⑥ toSrgb()：创建 ARGB_8888、hasAlpha=false、sRGB 位图；先填白底再 drawBitmap
-  ⑦ ensureEvenDimensions()：avif-coder 要求偶数宽高，奇数边裁掉最外侧 1px（不拉伸）
-  ⑧ 三档编码：
-       原图       = AVIF(q100) of encodable
-       小缩略图   = AVIF(q82)  of centerCropThumbnail(encodable)
-       大缩略图   = AVIF(q95)  of scaleLongEdge(encodable, 1280)
-  ⑨ 返回 Compressed(原图bytes/w/h, 小图bytes/w/h, 大图bytes/w/h)
+  ⑥ ensureEncodable()：已是 8bit sRGB、不透明、ARGB_8888 时**直接复用，零拷贝**；
+     否则 toSrgb() 合成到白底不透明位图（JPEG 不支持 alpha）
+  ⑦ 三档编码（统一 JPEG）：
+       原图       = JPEG(q90) of encodable
+       小缩略图   = JPEG(q82) of centerCropThumbnail(encodable)
+       大缩略图   = JPEG(q85) of scaleLongEdge(encodable, 1280)
+  ⑧ 返回 Compressed(原图bytes/w/h, 小图bytes/w/h, 大图bytes/w/h)
   异常统一吞掉返回 null
 ```
 
 - `centerCropThumbnail`：目标比 4:3。**横向比 > 4:3 截宽度中间；否则截高度中间**，然后缩放至 320×240（**居中裁剪，非顶部首屏**）
 - `scaleLongEdge`：等比缩放长边到 1280，宽高向下取偶
-- 展示端 `decodeForDisplay`：优先 `BitmapFactory`（API 33+ 原生 AVIF），失败回落 `HeifCoder`；解码后同样 `stripHdrGainmap`
+- 展示端 `decodeForDisplay`：优先 `BitmapFactory`（API 33+ 原生 AVIF），失败回落 `HeifCoder`；解码后同样 `stripHdrGainmap`。**保留 AVIF 解码能力**用于兼容历史已发出的 AVIF 消息
 
 > **与 V3 §11.3 的差异**：V3 要求「纵向超长图缩略图展示**顶部首屏**并带长图标记」，
 > 现状是**居中裁剪**。P10 阶段需确认是保留现状还是按 V3 改（若改，需同步更新本文件与 `media-golden.json`）。
+
+### 4.3 下载侧：AVIF 中间格式归一化
+
+对应 `MainViewModel.normalizeDownloadedImage()`：
+
+```text
+下载完成 → 读前 12 字节 → isAvifBytes()?
+   ├─ 否 → 原样使用（常规路径，零开销）
+   └─ 是 → ImageCodec.transcodeAvifToJpeg(src, dst)
+             ├─ 成功 → 删除 AVIF 源文件，使用 JPEG（用户看到的永远是 JPEG）
+             └─ 失败 → 保留原文件，交给 decodeForDisplay 的 AVIF 兜底解码（降级）
+```
+
+要点：
+
+- **开关只决定是否「请求」AVIF**（服务端 URL 参数），**不决定下载到 AVIF 后是否转码** ——
+  历史消息/服务端直传都可能带来 AVIF，一律检测后转码；
+- 写入走 `.tmp` + `renameTo`，失败不留半截文件；
+- 源与目标同名（下载路径已是 `.jpg`）时不删除文件，避免删掉刚转好的产物；
+- 转码失败**不报错给用户**，降级为「按普通图片处理」。
+
+> 服务端目前**不具备**实时压 AVIF 的能力（`HttpFileServer` 只有 `.avif` 的 MIME 识别），
+> 因此 `ImagePipelineConfig.avifTransportEnabled` 默认关闭。待服务端支持后打开即可。
 
 ## 5. 三档资源与 MediaCard
 
@@ -136,15 +197,18 @@ Uri → openInputStream
 
 | ID | 场景 | 输入 | 期望结果 |
 |---|---|---|---|
-| D-01 | 普通图（如 3000×2000 sRGB） | 选图发送 | 原图长边 ≤ 4096；宽高为偶数；小缩略图 320×240；大缩略图长边 1280；MediaCard 携带原始宽高 |
-| D-02 | 横向超长图（如 8000×1000） | 选图发送 | 原图缩到 4096×512（偶数）；缩略图**居中裁剪**为 4:3 后 320×240；原图不裁剪 |
+| D-01 | 普通图（如 3000×2000 sRGB） | 选图发送 | 原图长边 ≤ 4096；**产物为 JPEG(FFD8)**；小缩略图 320×240；大缩略图长边 1280 |
+| D-02 | 横向超长图（如 8000×1000） | 选图发送 | 原图缩到 4096×512；缩略图**居中裁剪**为 4:3 后 320×240；原图不裁剪 |
 | D-03 | 纵向超长图（如 1000×8000） | 选图发送 | 原图缩到 512×4096；缩略图居中裁剪 4:3 后 320×240（**现状非顶部首屏**，见 §4 差异） |
-| D-04 | 奇数宽高（如 3001×2001） | 选图发送 | 编码前裁为 3000×2000（各 -1px），不拉伸 |
+| D-04 | 奇数宽高（如 401×301） | 选图发送 | **原样输出 401×301，不裁边**（JPEG 无偶数要求）；大缩略图仍取偶为 400×300 |
 | D-05 | Display P3 输入 | 选图发送 | 统一转 sRGB 后编码；展示端无色偏（对比基线像素/感知哈希） |
 | D-06 | Ultra HDR / gainmap JPEG | 选图发送 | gainmap 被剥离，输出 SDR；不得出现绿/洋红通道异常 |
 | D-07 | EXIF 旋转 90/180/270 | 选图发送 | 解码后方向正确（依赖 BitmapFactory 的 EXIF 处理） |
 | D-08 | HEIC 输入 | 选图发送 | 系统解码成功并转 sRGB；失败时 `loadAndCompress` 返回 null（**现状无降级提示**） |
-| D-09 | 尺寸过小（如 3×3 → 2×2） | 选图发送 | `ensureEvenDimensions` 要求 ≥2；过小抛「图片尺寸过小」→ 被 catch 返回 null |
+| D-09 | 纯色回读 | 白/红/蓝/绿纯色图发送后回读中心像素 | 三档通道偏差 **≤ 8**（实测 ≤ 1）；**不得**出现 G/B 通道错位（历史值 `255,172,255`） |
+| D-21 | 下载到 AVIF | 服务端返回 AVIF 中间格式 | 转码成 JPEG、删除 AVIF 源文件、`localPath` 指向 .jpg |
+| D-22 | AVIF 转码失败 | AVIF 损坏/解码器不支持 | 不报错，保留原文件，由 `decodeForDisplay` 的 AVIF 兜底解码 |
+| D-23 | 机型黑名单 | 远程配置命中当前机型 | 不请求 AVIF，直接走常规下载 |
 | D-10 | 秒传命中 | 上传已存在于服务端的文件 | 只发 preflight + proof 片段（**不上传整文件**）；返回新 file_id |
 | D-11 | 秒传未命中 | 上传新文件 | preflight `hit=false` → 全量 `POST /api/v1/upload` |
 | D-12 | PoP challenge 越界 | 服务端返回 offset/length 超出文件大小 | 现状 `readFully` 抛 EOF → 被上层 catch；V3 要求显式校验范围并拒绝 |
@@ -169,8 +233,11 @@ D-05 / D-06 / D-07 需要像素级对照。约定：
      - 感知哈希（用于允许编码差异的场景：dHash 64bit）
 2) 样本图放 test-images/（仓库已有该目录），不含个人信息
 3) 结果存 `outputs/kernel-baseline/media-golden.json`；Android `MediaGoldenTest`
-   已能执行尺寸、格式与关键像素颜色门禁。2026-09-08 首次运行发现 AVIF
-   白色回读为 `255,172,255`，因此当前门禁保持失败，禁止以放宽容差掩盖偏色。
+   已能执行尺寸、格式与关键像素颜色门禁。
+   2026-09-08 首次运行发现 AVIF 白色回读 `255,172,255`（G/B 通道错位），
+   门禁一度保持失败——**禁止以放宽容差掩盖偏色**。
+   同日发送侧改为 JPEG 后：容差由 35 **收紧到 8**，门禁全绿（实测偏差 ≤ 1）。
+   若将来重新引入 AVIF 编码，这条门禁必须仍然保持收紧后的容差。
 ```
 
 判定规则：
@@ -193,3 +260,6 @@ D-05 / D-06 / D-07 需要像素级对照。约定：
 | P-06 | PoP 无「文件变更二次校验」 | 计算期间文件改变则拒绝秒传 | **新增能力** |
 | P-07 | 解码/编码在 Kotlin | 平台桥 `IPlatformImage` 原子能力 | **下沉策略，保留平台执行** |
 | P-08 | 404 不区分失效索引与网络错误 | `MediaRecord` 区分 | **新增能力** |
+| P-09 | 发送侧已改 JPEG；AVIF 仅作传输中间格式 | Native 内核保持同一策略 | **对齐**，不得在内核侧重新引入端到端 AVIF |
+| P-10 | 无 nclx/ICC 出入参、输出 JPEG 不携带 ICC | `ColorTransferParams` + `JpegIcc` | 接口已定义/实现，宽色域保真需 NDK（P10） |
+| P-11 | 无服务端 AVIF 压缩 | 服务端架平实时压 | **服务端新增能力**（当前开关默认关闭） |

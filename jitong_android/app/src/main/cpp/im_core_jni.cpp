@@ -21,6 +21,8 @@
 
 #include <openssl/opensslv.h>
 #include <openssl/crypto.h>
+#include <openssl/evp.h>
+#include <openssl/x509.h>
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 #include <openssl/provider.h>
 #endif
@@ -30,8 +32,10 @@
 #include <android/log.h>
 
 // TcpTransport.h 位于 client_core/src/（非 public 头），由 CMake 显式加入 include 路径。
-// 自检复用真实的 encodeLen32/decodeLen32，确保校验的就是链路实际使用的实现。
-#include "TcpTransport.h"
+// 自检复用 FrameCodec（全工程唯一的线格式实现），确保校验的就是链路实际使用的代码。
+#include "transport/FrameCodec.h"
+#include "transport/ClientSecureChannel.h"
+#include "transport/DeviceProof.h"
 
 #include "jni_observer.h"
 #include "native_sdk_handle.h"
@@ -55,8 +59,8 @@ bool selfTestFrameCodec()
     char buf[4] = {};
     const std::uint32_t kCases[] = {0u, 1u, 4u, 255u, 65535u, 10u * 1024u * 1024u, 0xDEADBEEFu};
     for (std::uint32_t v : kCases) {
-        im::encodeLen32(v, buf);
-        if (im::decodeLen32(buf) != v) return false;
+        im::transport::FrameCodec::encodeLength(v, buf);
+        if (im::transport::FrameCodec::decodeLength(buf) != v) return false;
         // 逐字节核对大端布局
         if (static_cast<unsigned char>(buf[0]) != ((v >> 24) & 0xFF)) return false;
         if (static_cast<unsigned char>(buf[3]) != (v & 0xFF)) return false;
@@ -69,9 +73,9 @@ bool selfTestEndianness()
 {
     const std::uint32_t one = 1u;
     const bool little = (*reinterpret_cast<const unsigned char*>(&one) == 1u);
-    // 无论本机大小端，encodeLen32 都应产出大端；这里只确认不会因本机序产生歧义
+    // 无论本机大小端，encodeLength 都应产出大端；这里只确认不会因本机序产生歧义
     char buf[4] = {};
-    im::encodeLen32(0x01020304u, buf);
+    im::transport::FrameCodec::encodeLength(0x01020304u, buf);
     const bool bigEndianLayout =
         static_cast<unsigned char>(buf[0]) == 0x01 &&
         static_cast<unsigned char>(buf[1]) == 0x02 &&
@@ -213,7 +217,7 @@ Java_com_jitong_im_core_NativeBindings_nativeCreate(JNIEnv* env, jclass /*clazz*
         }
     }
     try {
-        const jlong id = jt::createHandle(name);
+        const jlong id = jt::createHandle(name, {});
         __android_log_print(ANDROID_LOG_INFO, "JitongKernel", "nativeCreate('%s') -> %lld",
                             name.c_str(), static_cast<long long>(id));
         return id;
@@ -273,14 +277,14 @@ Java_com_jitong_im_core_NativeBindings_nativeLifecycleStressTest(JNIEnv* env, jc
 
         // 1) 创建 / 销毁 N 次
         for (int i = 0; i < rounds; ++i) {
-            const jlong id = jt::createHandle("stress.example");
+            const jlong id = jt::createHandle("stress.example", {});
             if (id == 0) { ++failures; break; }
             if (!jt::releaseHandle(id)) ++failures;
         }
 
         // 2) 幂等：同一句柄释放两次
         {
-            const jlong id = jt::createHandle("idem.example");
+            const jlong id = jt::createHandle("idem.example", {});
             const bool first = jt::releaseHandle(id);
             const bool second = jt::releaseHandle(id);
             if (!first || second) ++failures;
@@ -288,7 +292,7 @@ Java_com_jitong_im_core_NativeBindings_nativeLifecycleStressTest(JNIEnv* env, jc
 
         // 3) 野句柄：销毁后再次使用
         {
-            const jlong id = jt::createHandle("stale.example");
+            const jlong id = jt::createHandle("stale.example", {});
             jt::releaseHandle(id);
             if (jt::lookupHandle(id) != nullptr) ++failures;
             if (jt::releaseHandle(id)) ++failures;
@@ -297,7 +301,7 @@ Java_com_jitong_im_core_NativeBindings_nativeLifecycleStressTest(JNIEnv* env, jc
         // 4) 回调与销毁并发
         int callbackCount = 0;
         if (sink != nullptr) {
-            const jlong id = jt::createHandle("concurrent.example");
+            const jlong id = jt::createHandle("concurrent.example", {});
             auto h = jt::lookupHandle(id);
             if (h && attachObserver(id, sink)) {
                 std::atomic<bool> stop{false};
@@ -382,6 +386,170 @@ Java_com_jitong_im_core_NativeBindings_nativeEmitUtf8Test(JNIEnv* /*env*/, jclas
         std::string("\xF0\x90\x90\xB7");
     observer->onChatMessage(7, text);
     return JNI_TRUE;
+}
+
+// ---------------- P4：应用层安全通道 / 设备证明 进程内自检 ----------------
+
+// Kotlin: NativeBindings.nativeSecureChannelHandshakeTest(): String
+JNIEXPORT jstring JNICALL
+Java_com_jitong_im_core_NativeBindings_nativeSecureChannelHandshakeTest(JNIEnv* env, jclass /*clazz*/)
+{
+    std::string report;
+    report += "abi=";
+#if defined(__aarch64__)
+    report += "arm64-v8a\n";
+#elif defined(__x86_64__)
+    report += "x86_64\n";
+#else
+    report += "other\n";
+#endif
+    try {
+        std::string diag;
+        const bool ok = im::transport::ClientSecureChannel::runLoopbackHandshakeSelfTest(&diag);
+        report += diag;
+        if (report.find("result=") == std::string::npos) {
+            report += ok ? "result=ok\n" : "result=FAIL\n";
+        }
+    } catch (const std::exception& e) {
+        report += std::string("result=FAIL\nexception=") + e.what() + "\n";
+    } catch (...) {
+        report += "result=FAIL\nexception=unknown\n";
+    }
+    return env->NewStringUTF(report.c_str());
+}
+
+// Kotlin: NativeBindings.nativeDeviceProofSelfTest(): String
+JNIEXPORT jstring JNICALL
+Java_com_jitong_im_core_NativeBindings_nativeDeviceProofSelfTest(JNIEnv* env, jclass /*clazz*/)
+{
+    std::string report;
+    report += "abi=";
+#if defined(__aarch64__)
+    report += "arm64-v8a\n";
+#elif defined(__x86_64__)
+    report += "x86_64\n";
+#else
+    report += "other\n";
+#endif
+    bool ok = false;
+    try {
+        im::transport::DeviceProofKey key;
+        const bool generated = key.generate();
+        report += std::string("generate=") + (generated ? "ok\n" : "FAIL\n");
+
+        const auto pub = generated ? key.publicKeyDer() : im::transport::DeviceProofKey::Bytes{};
+        report += std::string("public_key=") + (!pub.empty() ? "ok\n" : "FAIL\n");
+
+        // 用与服务端逐字节一致的规范 message 构造并签名
+        im::transport::DeviceProofKey::Bytes sessionId(16, 0x11);
+        const auto msg = im::transport::buildDeviceProofMessage(
+            "password-login", sessionId, "arm64-selftest-device",
+            std::string("13800000000") + std::string(1, '\0') + std::string(64, 'a'), pub);
+        const auto sig = key.sign(msg);
+        report += std::string("sign=") + (!sig.empty() ? "ok\n" : "FAIL\n");
+
+        // 本地用导出的 SPKI 公钥验签，证明公私钥自洽（P-256 / SHA256withECDSA）
+        bool verified = false;
+        if (!pub.empty() && !sig.empty()) {
+            const unsigned char* p = pub.data();
+            EVP_PKEY* pkey = d2i_PUBKEY(nullptr, &p, static_cast<long>(pub.size()));
+            if (pkey) {
+                EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+                if (ctx) {
+                    verified = EVP_DigestVerifyInit(ctx, nullptr, EVP_sha256(), nullptr, pkey) == 1 &&
+                               EVP_DigestVerifyUpdate(ctx, msg.data(), msg.size()) == 1 &&
+                               EVP_DigestVerifyFinal(ctx, sig.data(), sig.size()) == 1;
+                    EVP_MD_CTX_free(ctx);
+                }
+                EVP_PKEY_free(pkey);
+            }
+        }
+        report += std::string("verify=") + (verified ? "ok\n" : "FAIL\n");
+        ok = generated && !pub.empty() && !sig.empty() && verified;
+    } catch (const std::exception& e) {
+        report += std::string("exception=") + e.what() + "\n";
+    } catch (...) {
+        report += "exception=unknown\n";
+    }
+    report += ok ? "result=ok\n" : "result=FAIL\n";
+    return env->NewStringUTF(report.c_str());
+}
+
+// P4 test-only：Android App 进程通过真实 socket 连接宿主机 im_server，并用生产
+// ClientCore 完成 TLS、应用握手和加密 Heartbeat 往返。参数由 androidTest 注入，
+// 不在二进制中固化测试证书、pin 或身份公钥。
+JNIEXPORT jstring JNICALL
+Java_com_jitong_im_core_NativeBindings_nativeSocketHeartbeatTest(
+    JNIEnv* env, jclass /*clazz*/, jstring host, jint port, jstring serverName,
+    jstring caFile, jstring identityPublicKeyBase64, jstring spkiPinBase64,
+    jstring plaintextMarker)
+{
+    auto toString = [env](jstring value) -> std::string {
+        if (!value) return {};
+        const char* chars = env->GetStringUTFChars(value, nullptr);
+        if (!chars) return {};
+        std::string result(chars);
+        env->ReleaseStringUTFChars(value, chars);
+        return result;
+    };
+
+    std::string report;
+#if defined(__aarch64__)
+    report += "abi=arm64-v8a\n";
+#elif defined(__x86_64__)
+    report += "abi=x86_64\n";
+#else
+    report += "abi=other\n";
+#endif
+
+    try {
+        const std::string hostValue = toString(host);
+        const std::string serverNameValue = toString(serverName);
+        const std::string caFileValue = toString(caFile);
+        const std::string identityValue = toString(identityPublicKeyBase64);
+        const std::string pinValue = toString(spkiPinBase64);
+        const std::string markerValue = toString(plaintextMarker);
+
+        std::vector<unsigned char> identityPublicKey;
+        const bool configOk = !hostValue.empty() && port > 0 && port <= 65535 &&
+            !serverNameValue.empty() && !caFileValue.empty() && !pinValue.empty() &&
+            !markerValue.empty() &&
+            jt::base64Decode(identityValue, identityPublicKey) && identityPublicKey.size() == 32;
+        report += std::string("config=") + (configOk ? "ok\n" : "FAIL\n");
+        if (!configOk) {
+            report += "result=FAIL\n";
+            return env->NewStringUTF(report.c_str());
+        }
+
+        im::ClientConfig config;
+        config.tlsServerName = serverNameValue;
+        config.caFile = caFileValue;
+        config.identityKeys.emplace(1U, std::move(identityPublicKey));
+        config.spkiPins.push_back(pinValue);
+
+        im::ClientCore core(std::move(config));
+        core.setHeartbeatIntervalMs(150);
+        const bool connected = core.connectToServer(
+            hostValue, static_cast<std::uint16_t>(port));
+        report += std::string("tls_and_app_handshake=") + (connected ? "ok\n" : "FAIL\n");
+
+        if (connected) core.sendEncryptedHeartbeatProbeForTest(markerValue);
+        report += std::string("marker_probe_enqueued=") + (connected ? "ok\n" : "FAIL\n");
+
+        // 150ms 发一次心跳，450ms 无入站即关闭。等待 1.1s 后仍连接，意味着至少多次
+        // HeartbeatRq(1010) 经 1040/AES-GCM 发出并收到 HeartbeatRs 解密回包。
+        if (connected) std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+        const bool heartbeat = connected && core.isConnected();
+        report += std::string("encrypted_heartbeat_roundtrip=") +
+                  (heartbeat ? "ok\n" : "FAIL\n");
+        core.disconnect();
+        report += (connected && heartbeat) ? "result=ok\n" : "result=FAIL\n";
+    } catch (const std::exception& e) {
+        report += std::string("exception=") + e.what() + "\nresult=FAIL\n";
+    } catch (...) {
+        report += "exception=unknown\nresult=FAIL\n";
+    }
+    return env->NewStringUTF(report.c_str());
 }
 
 } // extern "C"

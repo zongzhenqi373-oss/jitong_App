@@ -34,6 +34,9 @@ endif()
 set(CLIENT_CORE_SOURCES
     src/ClientCore.cpp
     src/TcpTransport.cpp
+    src/transport/FrameCodec.cpp
+    src/transport/ClientSecureChannel.cpp
+    src/transport/DeviceProof.cpp
 )
 if(CLIENT_CORE_WITH_SQLITE)
     list(APPEND CLIENT_CORE_SOURCES src/SqliteStorage.cpp)
@@ -102,10 +105,20 @@ endif()
 if(CLIENT_CORE_BUILD_TESTS)
     enable_testing()
 
+    # 测试用 assert() 做断言：Release 构建默认带 NDEBUG，会让断言变成空操作，
+    # 表现为"测试瞬间通过"却什么都没验证。这里显式取消该宏。
+    add_compile_options(-UNDEBUG)
+
     add_executable(test_protocol tests/test_protocol.cpp)
     target_link_libraries(test_protocol PRIVATE client_core)
     target_include_directories(test_protocol PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../protocol)
     add_test(NAME protocol COMMAND test_protocol)
+
+    # FrameCodec：线格式唯一实现，边界矩阵见 tests/test_frame_codec.cpp
+    add_executable(test_frame_codec tests/test_frame_codec.cpp)
+    target_link_libraries(test_frame_codec PRIVATE client_core)
+    target_include_directories(test_frame_codec PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    add_test(NAME frame_codec COMMAND test_frame_codec)
 
     if(CLIENT_CORE_WITH_SQLITE)
         add_executable(test_storage tests/test_storage.cpp)
@@ -142,6 +155,76 @@ if(CLIENT_CORE_BUILD_TESTS)
         target_link_libraries(test_integration PRIVATE ws2_32)
     endif()
     add_test(NAME integration COMMAND test_integration)
+
+    # Transport：真实 loopback TLS 上的消息边界、生命周期与重连 50 次
+    add_executable(test_transport tests/test_transport.cpp)
+    add_dependencies(test_transport client_core_test_tls_material)
+
+    # R2-F02：多级证书链 pinning 用例的材料。
+    # 生成 root CA（自签）→ 由 root 签发的 leaf；服务端发送 chain=leaf+root，
+    # 客户端信任 root、并 pin **leaf** 的 SPKI。这样验证回调会对 depth0(leaf) 与
+    # depth1(root) 都触发，正是修复前会误拒的最小链场景。
+    set(TEST_CHAIN_ROOT_KEY ${TEST_TLS_DIR}/test_chain_root.key)
+    set(TEST_CHAIN_ROOT_CRT ${TEST_TLS_DIR}/test_chain_root.crt)
+    set(TEST_CHAIN_LEAF_KEY ${TEST_TLS_DIR}/test_chain_leaf.key)
+    set(TEST_CHAIN_LEAF_CRT ${TEST_TLS_DIR}/test_chain_leaf.crt)
+    set(TEST_CHAIN_LEAF_CSR ${TEST_TLS_DIR}/test_chain_leaf.csr)
+    set(TEST_CHAIN_FULL_CRT ${TEST_TLS_DIR}/test_chain_fullchain.crt)
+    set(TEST_CHAIN_EXT ${TEST_TLS_DIR}/test_chain_leaf.ext)
+    add_custom_command(
+        OUTPUT ${TEST_CHAIN_FULL_CRT} ${TEST_CHAIN_LEAF_KEY} ${TEST_CHAIN_ROOT_CRT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${TEST_TLS_DIR}
+        # root CA
+        COMMAND ${OPENSSL_CLI} req -x509 -newkey rsa:2048 -sha256 -nodes
+                -keyout ${TEST_CHAIN_ROOT_KEY} -out ${TEST_CHAIN_ROOT_CRT} -days 2
+                -subj /CN=Jitong-Test-Root-CA
+        # leaf key + CSR
+        COMMAND ${OPENSSL_CLI} req -newkey rsa:2048 -sha256 -nodes
+                -keyout ${TEST_CHAIN_LEAF_KEY} -out ${TEST_CHAIN_LEAF_CSR}
+                -subj /CN=im.example.com
+        # leaf SAN 扩展
+        COMMAND ${CMAKE_COMMAND} -E echo "subjectAltName=DNS:im.example.com,DNS:localhost,IP:127.0.0.1" > ${TEST_CHAIN_EXT}
+        # 用 root 签发 leaf
+        COMMAND ${OPENSSL_CLI} x509 -req -in ${TEST_CHAIN_LEAF_CSR}
+                -CA ${TEST_CHAIN_ROOT_CRT} -CAkey ${TEST_CHAIN_ROOT_KEY}
+                -CAcreateserial -sha256 -days 2
+                -extfile ${TEST_CHAIN_EXT} -out ${TEST_CHAIN_LEAF_CRT}
+        # fullchain = leaf + root（服务端发送整条链）
+        COMMAND ${CMAKE_COMMAND} -E cat ${TEST_CHAIN_LEAF_CRT} ${TEST_CHAIN_ROOT_CRT} > ${TEST_CHAIN_FULL_CRT}
+        VERBATIM
+    )
+    add_custom_target(client_core_test_chain_material
+        DEPENDS ${TEST_CHAIN_FULL_CRT} ${TEST_CHAIN_LEAF_KEY} ${TEST_CHAIN_ROOT_CRT})
+    add_dependencies(test_transport client_core_test_chain_material)
+
+    target_link_libraries(test_transport PRIVATE client_core)
+    target_include_directories(test_transport PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/asio/include)
+    target_compile_definitions(test_transport PRIVATE
+        ASIO_STANDALONE ASIO_NO_DEPRECATED
+        CLIENT_CORE_TEST_CERT="${TEST_TLS_CERT}"
+        CLIENT_CORE_TEST_KEY="${TEST_TLS_KEY}"
+        CLIENT_CORE_TEST_CHAIN_FULLCHAIN="${TEST_CHAIN_FULL_CRT}"
+        CLIENT_CORE_TEST_CHAIN_LEAF_KEY="${TEST_CHAIN_LEAF_KEY}"
+        CLIENT_CORE_TEST_CHAIN_LEAF_CRT="${TEST_CHAIN_LEAF_CRT}"
+        CLIENT_CORE_TEST_CHAIN_ROOT_CRT="${TEST_CHAIN_ROOT_CRT}")
+    if(WIN32)
+        target_link_libraries(test_transport PRIVATE ws2_32)
+    endif()
+    add_test(NAME transport COMMAND test_transport)
+    # 网络相关测试必须有上界超时：挂起要变成失败，而不是无限等待
+    set_tests_properties(transport PROPERTIES TIMEOUT 180)
+
+    # 安全通道：四步握手、加密帧与负向用例
+    add_executable(test_secure_channel tests/test_secure_channel.cpp)
+    target_link_libraries(test_secure_channel PRIVATE client_core)
+    target_include_directories(test_secure_channel PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    # R2-F04：Golden 向量以 JSON 文件为唯一真相源，测试从文件读取期望值再与生产实现
+    # 比对（而不是把期望硬编码进 .cpp）。三端（C++/Android/Server）共享同一份 JSON。
+    target_compile_definitions(test_secure_channel PRIVATE
+        CLIENT_CORE_GOLDEN_JSON="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/app-security-v1.json")
+    add_test(NAME secure_channel COMMAND test_secure_channel)
 endif()
 
 # ---------------- im_cli 命令行演示客户端 ----------------

@@ -20,6 +20,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
@@ -140,9 +141,9 @@ class Round11ClosureTest {
                 rgba[p + 3] = 0xff.toByte()
             }
         }
-        val encoded = requireNotNull(platform.encodeAvif(rgba, width, height, PlatformEncodeOptions(100)))
-        // API 34 模拟器的系统 BitmapFactory 可能不包含 AVIF decoder；测试必须走
-        // 产品实际的“系统优先、libavif 兜底”路径，不能把系统能力缺失误判为编码失败。
+        // 发送侧主出口是 JPEG（质量 90）：本地编 AVIF 会出现 G/B 通道错位，
+        // 实测纯白回读 255,172,255。这里验证的是产品实际路径，不是被规避掉的 AVIF 路径。
+        val encoded = requireNotNull(platform.encodeJpeg(rgba, width, height, PlatformEncodeOptions(90)))
         val bitmap = requireNotNull(ImageCodec.decodeForDisplay(encoded))
 
         assertDominant(bitmap.getPixel(16, 16), red = true)
@@ -153,6 +154,30 @@ class Round11ClosureTest {
         val wg = Color.green(white)
         val wb = Color.blue(white)
         assertTrue("expected white: $wr,$wg,$wb", wr > 180 && wg > 180 && wb > 180)
+    }
+
+    /**
+     * 记录 `avif-coder` 的已知 **G/B 通道错位**缺陷（**不参与门禁**）。
+     *
+     * 用 `@Ignore` 而不是删除：问题保持可见，不被静默掩盖。
+     * 已验证与 `surfaceMode`(RGB/AUTO)、`chromaSubsampling`(YUV444) 无关，属库本身问题。
+     * P10 若要启用 AVIF 作为传输中间格式，应先修复该缺陷，再把本测试改回 `@Test`。
+     */
+    @Ignore("avif-coder 已知 G/B 通道错位：纯白回读 255,172,255，见 media-baseline.md §4.0")
+    @Test
+    fun avifEncode_knownGbChannelShift_isDocumented() {
+        val platform = AndroidImagePlatform()
+        val width = 64
+        val height = 64
+        val rgba = ByteArray(width * height * 4).apply { fill(0xff.toByte()) } // 纯白
+        val encoded = requireNotNull(platform.encodeAvif(rgba, width, height, PlatformEncodeOptions(100)))
+        val bitmap = requireNotNull(ImageCodec.decodeForDisplay(encoded))
+        val white = bitmap.getPixel(32, 32)
+        // 缺陷表现：G 通道掉到 ~172。若该断言成立，说明缺陷已修复，应把本测试改回 @Test。
+        assertTrue(
+            "G/B 错位已修复？回读=${Color.red(white)},${Color.green(white)},${Color.blue(white)}",
+            Color.green(white) > 240 && Color.blue(white) > 240,
+        )
     }
 
     private fun assertDominant(color: Int, red: Boolean = false, green: Boolean = false, blue: Boolean = false) {

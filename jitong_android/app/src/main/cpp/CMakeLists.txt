@@ -92,6 +92,7 @@ add_subdirectory(
     "${JT_REPO_ROOT}/client_core"
     "${CMAKE_BINARY_DIR}/client_core"
 )
+target_compile_definitions(client_core PRIVATE CLIENT_CORE_TEST_HOOKS)
 
 # ---------------------------------------------------------------------------
 # JNI 绑定 + 内核共享库
@@ -125,6 +126,7 @@ target_compile_definitions(jitong_kernel
     PRIVATE
         ASIO_STANDALONE
         ASIO_NO_DEPRECATED
+        CLIENT_CORE_TEST_HOOKS
 )
 
 target_link_libraries(jitong_kernel

@@ -582,8 +582,10 @@ private fun ImageBubble(msg: ChatMessage, onOpenOriginal: () -> Unit) {
     val originalPath = msg.localPath?.takeIf { java.io.File(it).isFile }
     val fallbackPath = msg.largeThumbnailPath?.takeIf { java.io.File(it).isFile }
         ?: msg.thumbnailPath?.takeIf { java.io.File(it).isFile }
-    // Android/Coil 的系统解码器在部分设备上不能解码 lossless AVIF。
-    // 与编码端复用同一个 libavif 解码器，并在 IO 线程完成，避免阻塞 Compose 主线程。
+    // 新发的图都是 JPEG，系统解码器可直接处理；这里保留 libavif 兜底是为了兼容
+    // 历史已发出的 AVIF 消息（部分设备系统解码器解不了 lossless AVIF）。
+    // JPEG 会走 decodeForDisplay 的系统解码分支，与旧路径同一入口。
+    // 解码在 IO 线程完成，避免阻塞 Compose 主线程。
     val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(
         initialValue = null,
         key1 = msg.msgId,
@@ -596,14 +598,6 @@ private fun ImageBubble(msg: ChatMessage, onOpenOriginal: () -> Unit) {
                 ?: fallbackPath?.let { path ->
                     runCatching { java.io.File(path).readBytes() }.getOrNull()
                 }
-            val source = when {
-                originalPath != null -> "原图(localPath)"
-                msg.imageBytes?.isNotEmpty() == true -> "内存原图(imageBytes)"
-                fallbackPath?.contains("/large/") == true -> "大缩略图(large)"
-                fallbackPath?.contains("/thumb/") == true -> "小缩略图(thumb)"
-                else -> "无本地图片"
-            }
-            android.util.Log.d("IM_IMG", "气泡图片 msgId=${msg.msgId} 来源=$source bytes=${bytes?.size ?: 0}")
             bytes?.let(ImageCodec::decodeForDisplay)?.asImageBitmap()
         }
     }

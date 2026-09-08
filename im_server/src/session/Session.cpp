@@ -17,6 +17,7 @@ using namespace im::proto;
 namespace {
 using crypto::Bytes;
 
+// 将 uint32_t 转换为字节序列
 void appendU32(Bytes& output, std::uint32_t value)
 {
     output.push_back(static_cast<std::uint8_t>((value >> 24) & 0xff));
@@ -25,27 +26,32 @@ void appendU32(Bytes& output, std::uint32_t value)
     output.push_back(static_cast<std::uint8_t>(value & 0xff));
 }
 
+// 将 uint64_t 转换为字节序列
 void appendU64(Bytes& output, std::uint64_t value)
 {
     for (int shift = 56; shift >= 0; shift -= 8)
         output.push_back(static_cast<std::uint8_t>((value >> shift) & 0xff));
 }
 
+// 将字符串转换为字节序列
 void append(Bytes& output, const std::string& value)
 {
     output.insert(output.end(), value.begin(), value.end());
 }
 
+// 将字节序列转换为字节序列
 void append(Bytes& output, const Bytes& value)
 {
     output.insert(output.end(), value.begin(), value.end());
 }
 
+// 将字符串转换为字节序列
 Bytes bytesOf(const std::string& value)
 {
     return Bytes(value.begin(), value.end());
 }
 
+// 生成签名 transcript
 Bytes signingTranscript(const std::string& clientPayload, std::uint32_t version,
                         const Bytes& serverPublic, const Bytes& serverNonce,
                         const Bytes& sessionId, std::uint32_t keyId,
@@ -64,6 +70,7 @@ Bytes signingTranscript(const std::string& clientPayload, std::uint32_t version,
     return result;
 }
 
+// 生成 finished transcript hash
 Bytes finishedTranscriptHash(const std::string& clientPayload, const std::string& serverPayload)
 {
     Bytes encoded;
@@ -74,12 +81,14 @@ Bytes finishedTranscriptHash(const std::string& clientPayload, const std::string
     return crypto::sha256(encoded);
 }
 
+// 截取字节序列
 Bytes slice(const Bytes& input, std::size_t offset, std::size_t size)
 {
     return Bytes(input.begin() + static_cast<std::ptrdiff_t>(offset),
                  input.begin() + static_cast<std::ptrdiff_t>(offset + size));
 }
 
+// 生成帧 nonce
 Bytes frameNonce(const Bytes& prefix, std::uint64_t sequence)
 {
     if (prefix.size() != 4 || sequence == 0)
@@ -89,6 +98,7 @@ Bytes frameNonce(const Bytes& prefix, std::uint64_t sequence)
     return nonce;
 }
 
+//  生成帧 aad
 Bytes frameAad(const Bytes& sessionId, std::uint64_t sequence)
 {
     const std::string label = "jitong-app-frame-v1";

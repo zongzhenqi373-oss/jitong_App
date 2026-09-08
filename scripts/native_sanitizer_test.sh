@@ -151,18 +151,21 @@ if [[ "$IS_MACOS" -eq 1 && "$RUN_MACOS_LEAKS" -eq 0 ]]; then
 fi
 
 if [[ "$RUN_CLIENT" -eq 1 ]]; then
-  run_suite 'client_core（协议、SQLite 存储、回环网络）' \
-    "$ROOT/client_core" "$ROOT/client_core/build-sanitize" '^(protocol|storage|integration)$'
+  # 第二轮新增 P3/P4：frame_codec（线格式边界）、transport（回环 TLS 生命周期/重连）、
+  # secure_channel（四步握手 + 加密帧 + 负向）也必须纳入 ASan/UBSan。
+  run_suite 'client_core（协议、存储、回环网络、帧编解码、Transport、安全通道）' \
+    "$ROOT/client_core" "$ROOT/client_core/build-sanitize" \
+    '^(protocol|storage|integration|frame_codec|transport|secure_channel)$'
   run_macos_leaks 'client_core' "$ROOT/client_core" "$ROOT/client_core/build-leaks" \
-    test_protocol test_storage test_integration
+    test_protocol test_storage test_integration test_frame_codec test_transport test_secure_channel
 fi
 
 if [[ "$RUN_SERVER" -eq 1 ]]; then
-  # 完整业务 e2e 在 P4 C++ 安全通道完成前保持 DISABLED；security_e2e 真实启动
-  # TLS 服务并验证旧客户端跳过应用握手时 fail-close，不能把 0 tests 算作通过。
-  run_suite 'im_server（11 项单元/并发/协议 + 1 项安全 e2e；完整业务 e2e 未覆盖）' \
+  # 第二轮：C++ ClientSecureChannel 完成后，完整业务 e2e 已解除 DISABLED，必须纳入
+  # ASan/UBSan；security_e2e 继续验证旧客户端跳过应用握手时 fail-close。
+  run_suite 'im_server（完整业务 e2e + 安全 e2e + 单元/并发/协议）' \
     "$ROOT/im_server" "$ROOT/im_server/build-sanitize" \
-    '^(security_e2e|database_concurrency|token_service|login_rate_limiter|device_proof|db_write_queue|conversation_migration|protocol_router|ai_model_client|ai_context|ai_request_limiter|app_crypto)$'
+    '^(e2e|security_e2e|database_concurrency|token_service|login_rate_limiter|device_proof|db_write_queue|conversation_migration|protocol_router|ai_model_client|ai_context|ai_request_limiter|app_crypto)$'
   run_macos_leaks 'im_server' "$ROOT/im_server" "$ROOT/im_server/build-leaks" test_e2e
 fi
 

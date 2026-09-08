@@ -194,6 +194,7 @@ bool Database::open(const std::string& dbPath, int poolSize)
         "  idB INTEGER NOT NULL,"
         "  PRIMARY KEY(idA, idB)"
         ");"
+        // 建立 idB 索引，用于查询用户的好友列表
         "CREATE INDEX IF NOT EXISTS idx_friend_idB ON t_friend(idB);"
         "CREATE TABLE IF NOT EXISTS friend_requests("
         "  requester_id INTEGER NOT NULL,"
@@ -203,8 +204,10 @@ bool Database::open(const std::string& dbPath, int poolSize)
         "  updated_at INTEGER NOT NULL,"
         "  PRIMARY KEY(requester_id,target_id)"
         ");"
+        // 建立 target_id 索引，用于查询用户的好友请求
         "CREATE INDEX IF NOT EXISTS idx_friend_request_target_status "
         "ON friend_requests(target_id,status,created_at);"
+        // 建立 requester_id 索引，用于查询用户的好友请求
         "CREATE INDEX IF NOT EXISTS idx_friend_request_sender_status "
         "ON friend_requests(requester_id,status,created_at);"
         // 全量消息表：漫游/离线单表，conversation_id 会话维度索引（对齐 QQNT PeerUidIndex+MsgTime）

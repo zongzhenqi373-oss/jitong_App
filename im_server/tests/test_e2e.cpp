@@ -21,6 +21,9 @@
 
 #include <fstream>
 
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+
 using namespace im;
 using namespace im::proto;
 
@@ -33,7 +36,41 @@ const std::string TEST_CERT = IM_SERVER_TEST_CERT;
 const std::string TEST_KEY = IM_SERVER_TEST_KEY;
 const std::string TEST_APP_IDENTITY_KEY = IM_SERVER_TEST_APP_IDENTITY_KEY;
 const std::string TEST_SERVERNAME = "im.example.com";
-const im::ClientConfig testConfig{TEST_SERVERNAME, TEST_CERT};
+
+/**
+ * 从测试身份私钥 PEM 派生 Ed25519 原始公钥。
+ *
+ * 服务端用同一个 PEM 里的私钥给 AppServerHello 签名，客户端必须用对应公钥验签；
+ * 未注入时客户端会 fail-close（不存在"跳过验证"的开关）。
+ */
+std::vector<unsigned char> ed25519PublicFromPemFile(const std::string& path)
+{
+    std::FILE* fp = std::fopen(path.c_str(), "r");
+    if (!fp) return {};
+    EVP_PKEY* pkey = PEM_read_PrivateKey(fp, nullptr, nullptr, nullptr);
+    std::fclose(fp);
+    if (!pkey) return {};
+
+    std::vector<unsigned char> pub(32, 0);
+    std::size_t len = 32;
+    const bool ok = EVP_PKEY_get_raw_public_key(pkey, pub.data(), &len) > 0 && len == 32;
+    EVP_PKEY_free(pkey);
+    return ok ? pub : std::vector<unsigned char>{};
+}
+
+/** 客户端配置：注入服务端身份公钥（key_id 与服务端启动时硬编码的 1 一致）。 */
+im::ClientConfig makeTestConfig()
+{
+    im::ClientConfig cfg;
+    cfg.tlsServerName = TEST_SERVERNAME;
+    cfg.caFile = TEST_CERT;
+    const auto pub = ed25519PublicFromPemFile(TEST_APP_IDENTITY_KEY);
+    assert(pub.size() == 32 && "测试身份公钥派生失败");
+    cfg.identityKeys[1] = pub;
+    return cfg;
+}
+
+const im::ClientConfig testConfig = makeTestConfig();
 
 
 struct RecordingEvents : IClientEvents {

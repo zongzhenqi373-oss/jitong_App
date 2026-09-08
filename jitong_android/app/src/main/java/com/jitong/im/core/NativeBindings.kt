@@ -86,4 +86,46 @@ object NativeBindings {
 
     /** 测试专用：由 C++ 构造包含中文和非 BMP emoji 的标准 UTF-8，再走真实 JNI 回调。 */
     external fun nativeEmitUtf8Test(handle: Long): Boolean
+
+    // ---------------- P4：应用层安全通道进程内握手自检 ----------------
+
+    /**
+     * 在 native 侧跑一遍完整的应用层安全通道握手（进程内环回，不依赖服务端/TLS）：
+     * ClientHello → ServerHello(Ed25519 验签) → ClientFinished → ServerFinished
+     * → 加密业务帧双向 AES-256-GCM 往返。全程使用与真实链路相同的加密原语。
+     *
+     * 用于在 Android arm64（真机/模拟器）上验证 X25519/Ed25519/HKDF/AES-GCM 与
+     * 四步握手在目标架构上的正确性。返回换行分隔的分步诊断，末行 `result=ok|FAIL`。
+     */
+    external fun nativeSecureChannelHandshakeTest(): String
+
+    /** 把握手自检报告解析成 Map。 */
+    fun handshakeTestMap(): Map<String, String> =
+        nativeSecureChannelHandshakeTest().lineSequence()
+            .mapNotNull { line ->
+                val idx = line.indexOf('=')
+                if (idx > 0) line.substring(0, idx) to line.substring(idx + 1) else null
+            }
+            .toMap()
+
+    /**
+     * 设备证明（P-256）自检：生成 P-256 密钥、导出 X.509 SPKI DER 公钥、对规范
+     * message 做 SHA256withECDSA 签名并本地验签往返。返回 `result=ok|FAIL`。
+     */
+    external fun nativeDeviceProofSelfTest(): String
+
+    /**
+     * P4 验收专用真实网络入口。它直接复用生产 ClientCore，依次完成：
+     * TCP → TLS 1.3/CA/hostname/SPKI → 四步应用握手 → AES-GCM Heartbeat 往返。
+     * 仅供 androidTest 调用，不接入 UI 或业务登录流程。
+     */
+    external fun nativeSocketHeartbeatTest(
+        host: String,
+        port: Int,
+        serverName: String,
+        caFile: String,
+        identityPublicKeyBase64: String,
+        spkiPinBase64: String,
+        plaintextMarker: String,
+    ): String
 }

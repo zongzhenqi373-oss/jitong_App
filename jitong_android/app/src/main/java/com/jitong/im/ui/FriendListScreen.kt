@@ -56,7 +56,6 @@ fun FriendListScreen(vm: MainViewModel) {
                     myNick, friends, conversations, results, query,
                     onQuery = { query = it; vm.search(it) },
                     onOpen = vm::openChat,
-                    onOpenAt = vm::openChatAt,
                     onAddFriend = { showAddFriend = true },
                     onMenu = { showMenu = true },
                 )
@@ -103,8 +102,7 @@ fun FriendListScreen(vm: MainViewModel) {
 private fun MessagesTab(
     myNick: String, friends: List<Friend>, conversations: Map<Int, com.jitong.im.data.db.ConversationEntity>,
     results: List<com.jitong.im.data.db.MessageEntity>, query: String,
-    onQuery: (String) -> Unit, onOpen: (Friend) -> Unit, onOpenAt: (Friend, String) -> Unit,
-    onAddFriend: () -> Unit, onMenu: () -> Unit,
+    onQuery: (String) -> Unit, onOpen: (Friend) -> Unit, onAddFriend: () -> Unit, onMenu: () -> Unit,
 ) {
     HomeHeader(myNick.ifBlank { "即通用户" }, onMenu)
     SearchBox(query, onQuery, "搜索聊天记录")
@@ -120,7 +118,7 @@ private fun MessagesTab(
             query.isNotBlank() -> LazyColumn {
                 items(results, key = { it.msgId }) { m ->
                     friends.firstOrNull { it.id == m.peerId }?.let {
-                        SearchResultRow(it, m.content.orEmpty(), query, m.ts) { onOpenAt(it, m.msgId) }
+                        SearchResultRow(it, m.content.orEmpty(), query, m.ts) { onOpen(it) }
                     }
                 }
             }

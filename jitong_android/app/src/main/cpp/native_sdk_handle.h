@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -55,10 +56,15 @@ struct NativeSdkHandle {
 
 /**
  * 创建句柄并登记到进程内句柄表。
- * @param serverName TLS SNI/证书校验目标（可为空，连接前再设置）
+ *
+ * @param serverName   TLS SNI/证书校验目标（可为空，连接前再设置）
+ * @param identityKeys base64 的 Ed25519 身份公钥（key_id → 公钥）。
+ *                     **必须提供**：服务端在 TLS 之上强制应用层握手，
+ *                     客户端用它验签；不注入则首次连接必然 BadKeyId 失败（fail-close）。
  * @return 不透明句柄 id；失败返回 0
  */
-jlong createHandle(const std::string& serverName);
+jlong createHandle(const std::string& serverName,
+                   const std::map<std::uint32_t, std::string>& identityKeys);
 
 /**
  * 按 id 查找句柄（线程安全）。句柄不存在或已释放时返回 nullptr。
@@ -76,5 +82,8 @@ bool releaseHandle(jlong id);
 
 /** 当前存活句柄数，供压力测试断言无泄漏。 */
 std::size_t liveHandleCount();
+
+/** 标准 base64 解码；测试配置注入与应用身份公钥加载共用。 */
+bool base64Decode(const std::string& in, std::vector<unsigned char>& out);
 
 } // namespace jt

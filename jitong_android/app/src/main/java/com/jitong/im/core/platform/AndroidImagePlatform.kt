@@ -8,7 +8,9 @@ import com.radzivon.bartoshyk.avif.coder.AvifChromaSubsampling
 import com.radzivon.bartoshyk.avif.coder.AvifSurfaceMode
 import com.radzivon.bartoshyk.avif.coder.HeifCoder
 import com.radzivon.bartoshyk.avif.coder.PreciseMode
+import java.io.ByteArrayOutputStream
 import java.io.FileInputStream
+import java.nio.ByteBuffer
 
 /**
  * [ImagePlatform] 的 Android 实现。
@@ -50,6 +52,27 @@ class AndroidImagePlatform : ImagePlatform {
         }.getOrNull()
     }
 
+    override fun encodeJpeg(
+        rgba8: ByteArray,
+        width: Int,
+        height: Int,
+        options: PlatformEncodeOptions,
+    ): ByteArray? = runCatching {
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
+            copyPixelsFromBuffer(ByteBuffer.wrap(rgba8))
+        }
+        ByteArrayOutputStream().use { out ->
+            if (bitmap.compress(Bitmap.CompressFormat.JPEG, options.quality.coerceIn(0, 100), out)) {
+                out.toByteArray()
+            } else {
+                null
+            }
+        }
+    }.getOrNull()
+
+    // 仅用于「传输中间格式」，不是发送侧出口。
+    // 已知缺陷：部分 ABI/设备解码出现 G/B 通道错位（纯白回读 255,172,255），
+    // 与 surfaceMode/chromaSubsampling 无关，属 avif-coder 库问题。详见接口注释。
     override fun encodeAvif(
         rgba8: ByteArray,
         width: Int,
@@ -74,12 +97,17 @@ class AndroidImagePlatform : ImagePlatform {
         }
         // 与 ImageCodec 保持一致：q100/YUV444 走标准 YUV 路径，
         // 避免部分 ABI 上 lossless chroma 解码出现 G/B 通道错位（整图绿/洋红）。
-        // 用命名参数，speed 保持默认值（与 ImageCodec 一致）
+        // 用命名参数，speed 保持默认值。
+        //
+        // surfaceMode 必须是 AUTO 而不是 RGB：`AvifSurfaceMode.RGB` 会让编码器按 RGB
+        // 平面而非 YUV 平面组织数据，配合 YUV444 在部分 ABI 上解码出现 G/B 通道错位
+        // —— Round11ClosureTest 实测纯白回读为 255,172,255（G 通道掉到 172）。
+        // AUTO 走标准 YUV 路径，回读 255,255,255。
         HeifCoder().encodeAvif(
             bitmap,
             quality = options.quality,
             preciseMode = PreciseMode.LOSSY,
-            surfaceMode = AvifSurfaceMode.RGB,
+            surfaceMode = AvifSurfaceMode.AUTO,
             avifChromaSubsampling = AvifChromaSubsampling.YUV444,
         )
     }.getOrNull()

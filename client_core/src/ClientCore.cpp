@@ -1,6 +1,8 @@
 #include "client_core/ClientCore.h"
 #include "client_core/IStorage.h"
 #include "TcpTransport.h"
+#include "transport/ClientSecureChannel.h"
+#include "transport/DeviceProof.h"
 #include "im.pb.h"
 #include "sha256.h"
 #if defined(CLIENT_CORE_WITH_MEDIA)
@@ -50,6 +52,24 @@ std::string makeMsgId()
     return buf;
 }
 
+// 生成一个进程内唯一的设备标识（default device id）。
+// 设备证明模型下，每个 ClientCore 实例代表一台逻辑设备，必须有各自稳定且互不
+// 冲突的 device_id；服务端会把 (userId, device_id) 绑定到某一把设备公钥，若两台
+// 不同设备复用同一个 device_id 但公钥不同，服务端会以“device_id已绑定其他设备
+// 密钥”拒绝。生产环境应改为按安装持久化的稳定 id，这里给出安全的默认值。
+std::string makeDefaultDeviceId()
+{
+    static std::atomic<std::uint64_t> counter{0};
+    static std::random_device rd;
+    const std::uint64_t rand64 = (static_cast<std::uint64_t>(rd()) << 32) | rd();
+    const std::uint64_t seq = counter.fetch_add(1);
+    char buf[48];
+    std::snprintf(buf, sizeof(buf), "client-core-%016llx%04llx",
+                  static_cast<unsigned long long>(rand64),
+                  static_cast<unsigned long long>(seq & 0xFFFF));
+    return buf;
+}
+
 // 从 HttpFileServer 的上传响应体（形如 {"file_id":"...","sha256":"...","size":N,
 // "content_type":"..."}）里抠一个字符串字段。响应格式完全由我们自己的服务端生成、
 // 值都是 hex/mime 这类不含引号转义的简单字符串，不需要引入完整 JSON 库。
@@ -70,6 +90,13 @@ ClientCore::ClientCore(ClientConfig config)
     , m_caFile(config.caFile)
     , m_httpPort(config.httpPort)
 {
+    m_identityKeys = std::move(config.identityKeys);
+    m_secureChannel = std::make_unique<transport::ClientSecureChannel>();
+    m_deviceKey = std::make_unique<transport::DeviceProofKey>();
+    // 每个 ClientCore 实例默认视为一台独立设备，分配唯一 device_id，避免多实例
+    // 复用同一个 device_id 时因设备公钥不同被服务端拒绝。可由上层覆盖为持久化 id。
+    m_deviceId = makeDefaultDeviceId();
+
     //开发阶段如果证书SAN是 IP:127.0.0.1，serverName可以暂时传 "127.0.0.1"。
     //不能使用 verify_none 或永远返回true的验证回调。
     m_transport = std::make_unique<TcpTransport>(
@@ -77,12 +104,20 @@ ClientCore::ClientCore(ClientConfig config)
         std::move(config.caFile)
     );
 
+    // R2-F02：把配置里的 SPKI pin 接到传输层。非空即启用证书公钥固定；为空则不启用
+    // （仅依赖 CA 链 + 主机名）。这样生产路径才真正具备 pinning，而不只是测试里直接
+    // 调 setSpkiPins 才生效。
+    if (!config.spkiPins.empty()) {
+        m_transport->setSpkiPins(std::move(config.spkiPins));
+    }
+
     initFunArr();
 
-    m_transport->setPacketHandler([this](const char* data, std::size_t len) {
+    // type/payload 已由 FrameCodec 解析，业务层不再处理端序
+    m_transport->setPacketHandler([this](proto::protType type, const char* payload, std::size_t len) {
         // 任何入站包都刷新活跃时间（含心跳回复）
         m_lastRecvMs.store(steadyNowMs());
-        dispatchPacket(data, len);
+        dispatchPacket(type, payload, len);
     });
     m_transport->setCloseHandler([this]() {
         if (auto* ev = m_events.load()) ev->onConnectionClosed();
@@ -106,6 +141,15 @@ bool ClientCore::connectToServer(const std::string& ip, std::uint16_t port)
     m_host = ip;
     if (m_httpPort == 0) m_httpPort = static_cast<std::uint16_t>(port + 1);
     m_lastRecvMs.store(steadyNowMs());
+
+    // 服务端强制 TLS 之上的应用层安全握手：未完成握手就发业务帧会被 fail-close。
+    // 因此握手必须在 startHeartbeat() 之前完成，否则明文心跳会立刻触发断开。
+    if (!performAppHandshake()) {
+        std::cerr << "[APP-SEC] 应用层安全握手失败，关闭连接" << std::endl;
+        m_transport->close();
+        return false;
+    }
+
     startHeartbeat();
     return true;
 }
@@ -139,29 +183,184 @@ void ClientCore::initFunArr()
     m_dealFunArr[DEF_PROT_ROAM_MSG_RS    - DEF_BASE] = &ClientCore::onRoamMsgRs;
 }
 
-void ClientCore::dispatchPacket(const char* data, std::size_t len)
+void ClientCore::dispatchPacket(protType type, const char* payload, std::size_t len)
 {
-    // 包体 = [4B 小端协议号][pb payload]
-    if (!data || len < sizeof(protType)) return;
+    // 协议号与 payload 已由传输层用 FrameCodec 解析，这里只做分发
+    if (!payload && len > 0) return;
 
-    const protType type = decodeType32(data);
+    // ---------------- 应用层安全通道帧（P4） ----------------
+    if (type == DEF_PROT_APP_SERVER_HELLO) {
+        handleAppServerHello(payload, len);
+        return;
+    }
+    if (type == DEF_PROT_APP_SERVER_FINISHED) {
+        handleAppServerFinished(payload, len);
+        return;
+    }
+    if (type == DEF_PROT_APP_ENCRYPTED_FRAME) {
+        handleAppEncryptedFrame(payload, len);
+        return;
+    }
 
+    // 安全通道建立之后，服务端只会发 1040；外层收到任何明文帧说明链路异常，丢弃不分发
+    if (m_secureChannel && m_secureChannel->established()) {
+        std::cerr << "[APP-SEC] 安全通道建立后收到明文帧，丢弃 type=" << type << std::endl;
+        return;
+    }
+
+    dispatchBusiness(type, payload, len);
+}
+
+void ClientCore::dispatchBusiness(protType type, const char* payload, std::size_t len)
+{
     // 范围校验（防越界访问函数指针数组）
     if (type < DEF_BASE) return;
     const std::size_t index = type - DEF_BASE;
     if (index >= static_cast<std::size_t>(DEF_PROT_COUNT)) return;
 
     DealFun pFun = m_dealFunArr[index];
-    if (pFun) (this->*pFun)(data + sizeof(protType), len - sizeof(protType));
+    if (pFun) (this->*pFun)(payload, len);
 }
 
 void ClientCore::sendPacket(protType type, const std::string& payload)
 {
+    // 安全通道建立后，所有业务帧必须先加密再封装成 1040 发出；
+    // 握手帧（1036/1038）走明文，这是协议本身规定的顺序。
+    //
+    // R2-F01：分配 sequence + 加密 + 组 body + 入队必须在**同一线程序列**里串行发生。
+    // sendPacket 可能被心跳线程、业务/UI 线程并发调用，若各自在自己的线程里做
+    // encrypt()（内部 ++m_sendSequence）会产生数据竞争，轻则序号乱序被服务端按
+    // 严格 +1 校验 fail-close，重则 AES-GCM nonce 重用破坏机密性。这里把整段加密
+    // 逻辑 post 到 Transport 的 IO 线程（与入站解密/握手同一 executor），彻底串行化。
+    if (m_secureChannel && m_secureChannel->established()) {
+        m_transport->postToIo([this, type, payload]() {
+            // 已切到 IO 线程：encrypt() 与入站 decrypt()、握手状态变更严格串行
+            if (!m_secureChannel || !m_secureChannel->established()) {
+                return; // 期间连接被关闭/重置，直接丢弃
+            }
+            std::string frame;
+            if (!m_secureChannel->encrypt(type, payload, frame)) {
+                std::cerr << "[APP-SEC] 加密失败，丢弃 type=" << type << std::endl;
+                return;
+            }
+            sendRawPacket(DEF_PROT_APP_ENCRYPTED_FRAME, frame);
+        });
+        return;
+    }
+    sendRawPacket(type, payload);
+}
+
+void ClientCore::sendRawPacket(protType type, const std::string& payload)
+{
     std::string body;
     body.resize(sizeof(protType) + payload.size());
     encodeType32(type, body.data());
-    std::memcpy(body.data() + sizeof(protType), payload.data(), payload.size());
-    m_transport->send(body.data(), body.size());
+    if (!payload.empty()) {
+        std::memcpy(body.data() + sizeof(protType), payload.data(), payload.size());
+    }
+    // R2-F01：不再忽略发送结果。send 内部会把帧 post 到 IO 线程写队列，返回值反映
+    // 「是否已入队」。未连接/超限等未入队情形要记录，避免业务以为已发出。
+    const auto result = m_transport->send(body.data(), body.size());
+    if (result != TcpTransport::SendResult::Ok) {
+        std::cerr << "[发送] 未入队 type=" << type
+                  << " result=" << static_cast<int>(result) << std::endl;
+    }
+}
+
+// ---------------- 应用层安全握手（P4） ----------------
+
+bool ClientCore::performAppHandshake()
+{
+    if (!m_secureChannel) return false;
+
+    m_secureChannel->reset();
+    m_secureChannel->setTrustedIdentityKeys(m_identityKeys);
+
+    std::string hello;
+    if (!m_secureChannel->buildClientHello(hello)) {
+        std::cerr << "[APP-SEC] 构造 ClientHello 失败" << std::endl;
+        return false;
+    }
+
+    auto promise = std::make_shared<std::promise<bool>>();
+    std::future<bool> future = promise->get_future();
+    {
+        std::lock_guard<std::mutex> lk(m_handshakeMutex);
+        m_handshakePromise = promise;
+    }
+
+    sendRawPacket(DEF_PROT_APP_CLIENT_HELLO, hello);
+
+    // 服务端握手超时为 15s，这里留出同样上界，避免连接线程无限等待
+    if (future.wait_for(std::chrono::seconds(15)) != std::future_status::ready) {
+        std::cerr << "[APP-SEC] 应用层握手超时" << std::endl;
+        std::lock_guard<std::mutex> lk(m_handshakeMutex);
+        m_handshakePromise.reset();
+        return false;
+    }
+    return future.get();
+}
+
+void ClientCore::completeHandshake(bool ok)
+{
+    std::shared_ptr<std::promise<bool>> promise;
+    {
+        std::lock_guard<std::mutex> lk(m_handshakeMutex);
+        promise = m_handshakePromise;
+        m_handshakePromise.reset();
+    }
+    if (promise) promise->set_value(ok);
+}
+
+void ClientCore::handleAppServerHello(const char* data, std::size_t len)
+{
+    if (!m_secureChannel) {
+        completeHandshake(false);
+        return;
+    }
+    std::string finished;
+    if (!m_secureChannel->handleServerHello(std::string(data, len), finished)) {
+        std::cerr << "[APP-SEC] ServerHello 校验失败，断开连接" << std::endl;
+        completeHandshake(false);
+        m_transport->close();
+        return;
+    }
+    sendRawPacket(DEF_PROT_APP_CLIENT_FINISHED, finished);
+}
+
+void ClientCore::handleAppServerFinished(const char* data, std::size_t len)
+{
+    if (!m_secureChannel) {
+        completeHandshake(false);
+        return;
+    }
+    if (!m_secureChannel->handleServerFinished(std::string(data, len))) {
+        std::cerr << "[APP-SEC] ServerFinished 校验失败，断开连接" << std::endl;
+        completeHandshake(false);
+        m_transport->close();
+        return;
+    }
+    completeHandshake(true);
+}
+
+void ClientCore::handleAppEncryptedFrame(const char* data, std::size_t len)
+{
+    if (!m_secureChannel || !m_secureChannel->established()) {
+        std::cerr << "[APP-SEC] 未建立安全通道却收到加密帧" << std::endl;
+        m_transport->close();
+        return;
+    }
+    protType innerType = 0;
+    std::string inner;
+    if (!m_secureChannel->decrypt(std::string(data, len), innerType, inner)) {
+        // 解密/认证失败：与服务端一致 fail-close，绝不上抛未认证明文
+        std::cerr << "[APP-SEC] 加密帧解密失败，断开连接" << std::endl;
+        m_transport->close();
+        return;
+    }
+    // 内层协议号已由 decrypt 排除 1036..1040。
+    // 必须走 dispatchBusiness：再走 dispatchPacket 会被"已建立通道拒绝明文"误杀。
+    dispatchBusiness(innerType, inner.data(), inner.size());
 }
 
 // ---------------- 业务请求 ----------------
@@ -179,12 +378,43 @@ void ClientCore::sendRegister(const std::string& nickUtf8, const std::string& te
 void ClientCore::sendLogin(const std::string& tel, const std::string& pass)
 {
     im::proto::LoginRq rq;
-    rq.set_tel(utf8Truncate(tel, USER_TEL_LEN - 1));
+    const std::string telField = utf8Truncate(tel, USER_TEL_LEN - 1);
     // 对齐 QQNT：传输的是密码哈希，而非明文
-    rq.set_pass(sha256Hex(pass));
+    const std::string passProof = sha256Hex(pass);
+    rq.set_tel(telField);
+    rq.set_pass(passProof);
     rq.set_device_id(m_deviceId);
     rq.set_device_name("C++ ClientCore");
     rq.set_client_version("client-core-0.5.0");
+
+    // 设备证明（P-256）：服务端要求密码登录携带设备公钥并对本次应用会话签名，
+    // 否则以 LOGIN_INVALID 拒绝。签名内容与服务端 deviceproof::message 逐字节一致：
+    //   operation        = "password-login"
+    //   appSessionId     = 应用层安全通道 sessionId（握手成功后有效）
+    //   deviceId         = m_deviceId
+    //   credentialBinding= tel || '\0' || sha256Hex(pass)
+    //   publicKey        = 设备 P-256 X.509 SPKI DER（本操作绑定公钥）
+    if (!m_deviceKey || (!m_deviceKey->valid() && !m_deviceKey->generate())) {
+        std::cerr << "[认证] 设备密钥生成失败，无法登录" << std::endl;
+        return;
+    }
+    const auto publicKeyDer = m_deviceKey->publicKeyDer();
+    transport::DeviceProofKey::Bytes appSessionId;
+    if (m_secureChannel) {
+        const auto& sid = m_secureChannel->sessionId();
+        appSessionId.assign(sid.begin(), sid.end());
+    }
+    const std::string credentialBinding = telField + std::string(1, '\0') + passProof;
+    const auto message = transport::buildDeviceProofMessage(
+        "password-login", appSessionId, m_deviceId, credentialBinding, publicKeyDer);
+    const auto signature = m_deviceKey->sign(message);
+    if (publicKeyDer.empty() || signature.empty()) {
+        std::cerr << "[认证] 设备签名失败，无法登录" << std::endl;
+        return;
+    }
+    rq.set_device_public_key(publicKeyDer.data(), publicKeyDer.size());
+    rq.set_device_signature(signature.data(), signature.size());
+
     sendPacket(DEF_PROT_LOGIN_RQ, rq.SerializeAsString());
 }
 
@@ -388,6 +618,12 @@ void ClientCore::setHeartbeatIntervalMs(int intervalMs)
 {
     if (intervalMs > 0) m_hbIntervalMs = intervalMs;
 }
+#if defined(CLIENT_CORE_TEST_HOOKS)
+void ClientCore::sendEncryptedHeartbeatProbeForTest(const std::string& marker)
+{
+    sendPacket(DEF_PROT_HEARTBEAT_RQ, marker);
+}
+#endif
 
 void ClientCore::startHeartbeat()
 {

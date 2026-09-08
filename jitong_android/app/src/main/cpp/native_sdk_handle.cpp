@@ -53,13 +53,54 @@ bool destroyHandleLocked(const std::shared_ptr<NativeSdkHandle>& handle)
 
 } // namespace
 
-jlong createHandle(const std::string& serverName)
+/** base64（标准字母表，忽略空白与 '=' 填充）解码。 */
+bool base64Decode(const std::string& in, std::vector<unsigned char>& out)
+{
+    static const std::string kChars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    out.clear();
+    int val = 0;
+    int valBits = 0;
+    for (const char c : in) {
+        if (c == '=' || c == ' ' || c == '\n' || c == '\r' || c == '\t') continue;
+        const auto pos = kChars.find(c);
+        if (pos == std::string::npos) return false;
+        val = (val << 6) | static_cast<int>(pos);
+        valBits += 6;
+        if (valBits >= 8) {
+            valBits -= 8;
+            out.push_back(static_cast<unsigned char>((val >> valBits) & 0xFF));
+        }
+    }
+    return true;
+}
+
+jlong createHandle(const std::string& serverName,
+                   const std::map<std::uint32_t, std::string>& identityKeys)
 {
     auto handle = std::make_shared<NativeSdkHandle>();
 
     try {
         im::ClientConfig cfg;
         cfg.tlsServerName = serverName;
+
+        // 信任根必须在建连**之前**注入：少了它，首次连接必然 BadKeyId 失败。
+        // 任一 key 非法就整体失败，不做"跳过这一条继续"的降级。
+        for (const auto& kv : identityKeys) {
+            std::vector<unsigned char> pub;
+            if (!base64Decode(kv.second, pub) || pub.size() != 32) {
+                __android_log_print(ANDROID_LOG_ERROR, "JitongKernel",
+                                    "identityKeys[%u] 非法：需要 32 字节的 base64 公钥", kv.first);
+                return 0;
+            }
+            cfg.identityKeys[kv.first] = pub;
+        }
+        if (cfg.identityKeys.empty()) {
+            __android_log_print(ANDROID_LOG_ERROR, "JitongKernel",
+                                "未提供任何 identityKeys：应用层握手将必然失败");
+            return 0;
+        }
+
         // 构造只初始化状态，不建连接；连接由 connectToServer 触发（P3 之后）
         handle->core = std::make_shared<im::ClientCore>(cfg);
     } catch (const std::exception& e) {

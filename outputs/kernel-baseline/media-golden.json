@@ -1,11 +1,17 @@
 {
-  "schema": 1,
+  "schema": 2,
   "source": "Android ImageCodec executable Golden",
-  "colorTolerance": 35,
+  "format": "image/jpeg",
+  "colorTolerance": 8,
+  "notes": [
+    "schema 2：发送侧产物由 AVIF 改为 JPEG（规避本地 AVIF 编解码偏色），format 字段驱动门禁断言",
+    "colorTolerance 由 35 收紧到 8：此前 AVIF 白色回读 255,172,255（G/B 错位），容差被临时放宽；改 JPEG 后必须回到严格值",
+    "odd-dimensions 不再裁边：JPEG 无偶数宽高要求，401x301 原样输出（此前会被裁成 400x300）"
+  ],
   "cases": [
     {"id":"solid-white","width":320,"height":240,"expectedOriginal":[320,240],"expectedThumb":[320,240],"expectedLarge":[320,240],"color":"#FFFFFF"},
     {"id":"ultra-wide","width":800,"height":108,"expectedOriginal":[800,108],"expectedThumb":[320,240],"expectedLarge":[800,108],"color":"#D02020"},
     {"id":"ultra-tall","width":108,"height":800,"expectedOriginal":[108,800],"expectedThumb":[320,240],"expectedLarge":[108,800],"color":"#2050D0"},
-    {"id":"odd-dimensions","width":401,"height":301,"expectedOriginal":[400,300],"expectedThumb":[320,240],"expectedLarge":[400,300],"color":"#20C050"}
+    {"id":"odd-dimensions","width":401,"height":301,"expectedOriginal":[401,301],"expectedThumb":[320,240],"expectedLarge":[400,300],"color":"#20C050"}
   ]
 }

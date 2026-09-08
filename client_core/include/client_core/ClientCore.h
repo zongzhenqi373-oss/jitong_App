@@ -9,8 +9,10 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <future>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -23,10 +25,36 @@ struct ClientConfig {
         std::string tlsServerName;
         std::string caFile;
         std::uint16_t httpPort = 0; // HTTP 文件服务端口；0 表示未设置时使用 TCP 端口+1（见 connectToServer）
+
+        /**
+         * 受信的服务端 Ed25519 身份公钥：key_id → 32 字节原始公钥。
+         *
+         * 服务端在 TLS 之上强制应用层安全握手（AppServerHello 带 Ed25519 签名），
+         * 客户端必须用它验签。为空时**任何** ServerHello 都会失败（fail-close）——
+         * 不存在"跳过验证"的开关。
+         */
+        std::map<std::uint32_t, std::vector<unsigned char>> identityKeys;
+
+        /**
+         * 服务端叶子证书的 SPKI SHA-256 pin（base64，公钥而非整证书）。
+         *
+         * 非空即表示**启用** TLS 证书公钥固定：证书链与主机名校验通过后，叶子证书的
+         * SPKI pin 还必须命中其中之一，否则握手失败（fail-close）。留空表示不启用
+         * pinning（仅依赖 CA 链 + 主机名校验）。
+         *
+         * 与服务端 im_server 的 `spki_pin` 工具产出的值一致；轮换证书时应同时保留
+         * 新旧两把 pin 以避免升级窗口内连不上。
+         */
+        std::vector<std::string> spkiPins;
     };
 
 class IStorage;
 class TcpTransport;
+
+namespace transport {
+class ClientSecureChannel;
+class DeviceProofKey;
+}
 
 // UI 事件回调接口（由 UI 层实现）
 class IClientEvents {
@@ -129,6 +157,10 @@ public:
     // 连续 3 个间隔未收到服务端的任何数据则判定断连（触发 onConnectionClosed）。
     // 需在 connectToServer 之前调用才生效。
     void setHeartbeatIntervalMs(int intervalMs);
+#if defined(CLIENT_CORE_TEST_HOOKS)
+    /** 测试专用：发送带唯一明文标记的加密心跳，供 pcap 证明正文未泄漏。 */
+    void sendEncryptedHeartbeatProbeForTest(const std::string& marker);
+#endif
 
     // ---------------- 业务请求 ----------------
     void sendRegister(const std::string& nickUtf8, const std::string& tel, const std::string& pass);
@@ -180,7 +212,13 @@ private:
     using DealFun = void (ClientCore::*)(const char* data, std::size_t len);
     DealFun m_dealFunArr[proto::DEF_PROT_COUNT]{};
     void initFunArr();
-    void dispatchPacket(const char* data, std::size_t len);
+    /**
+     * 入站帧入口：处理安全通道帧，并拒绝「已建立通道后的外层明文」。
+     * 解密得到的内层业务帧必须走 dispatchBusiness()，不能再经过这里的明文检查。
+     */
+    void dispatchPacket(proto::protType type, const char* payload, std::size_t len);
+    // 业务帧分发（不做安全通道明文检查）
+    void dispatchBusiness(proto::protType type, const char* payload, std::size_t len);
 
     // 协议处理函数
     void onRegisterRs(const char* data, std::size_t len);
@@ -210,7 +248,33 @@ private:
     std::atomic<std::int64_t> m_lastRecvMs{0};
 
     // 发送一个完整协议包：4B 小端协议号 + pb payload（transport 再加包长前缀）
+    // 安全通道建立之后，业务帧会被加密后封装成 AppEncryptedFrame(1040) 发出；
+    // 握手帧（1036/1038）始终明文，这是协议本身规定的。
     void sendPacket(proto::protType type, const std::string& payload);
+    // 实际写入 transport：只负责组 body，不做加密判断
+    void sendRawPacket(proto::protType type, const std::string& payload);
+
+    // ---------------- 应用层安全通道（P4） ----------------
+    std::unique_ptr<transport::ClientSecureChannel> m_secureChannel;
+    std::map<std::uint32_t, std::vector<unsigned char>> m_identityKeys;
+
+    // 设备证明密钥（P-256）：密码登录需对本次应用会话签名，绑定设备公钥。
+    // 由 ClientCore 持有并在首次使用时惰性生成。
+    std::unique_ptr<transport::DeviceProofKey> m_deviceKey;
+
+    /**
+     * TLS 完成后执行四步应用层握手，同步等待结果。
+     * 服务端强制该握手（未完成时任何业务帧都会导致断开），因此失败即连接失败。
+     */
+    bool performAppHandshake();
+    void completeHandshake(bool ok);
+    void handleAppServerHello(const char* data, std::size_t len);
+    void handleAppServerFinished(const char* data, std::size_t len);
+    void handleAppEncryptedFrame(const char* data, std::size_t len);
+
+    // 握手完成的同步点（IO 线程 set_value，连接线程等待）
+    std::mutex m_handshakeMutex;
+    std::shared_ptr<std::promise<bool>> m_handshakePromise;
 
     //跨线程指针：UI 线程设置（setEventSink/setStorage），asio io 线程与心跳线程读取
     std::atomic<IClientEvents*> m_events{nullptr};
