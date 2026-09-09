@@ -31,20 +31,43 @@ bool destroyHandleLocked(const std::shared_ptr<NativeSdkHandle>& handle)
 
     std::shared_ptr<im::ClientCore> core;
     std::shared_ptr<JniObserver> observer;
+    std::shared_ptr<im::account::AccountSession> account;
+    std::shared_ptr<im::account::ClientCoreAuthTransport> authTransport;
+    std::shared_ptr<void> accountObserver;
+    std::shared_ptr<im::account::IP256Signer> signer;
+    std::shared_ptr<im::account::ITokenStore> tokenStore;
+    std::shared_ptr<jt::JniAuthPlatform> authPlatform;
+    std::shared_ptr<im::account::SystemClock> clock;
 
     {
         std::lock_guard<std::mutex> lk(handle->mutex);
         core = std::move(handle->core);
         observer = std::move(handle->observer);
+        account = std::move(handle->account);
+        authTransport = std::move(handle->authTransport);
+        accountObserver = std::move(handle->accountObserver);
+        signer = std::move(handle->signer);
+        tokenStore = std::move(handle->tokenStore);
+        authPlatform = std::move(handle->authPlatform);
+        clock = std::move(handle->clock);
     }
 
-    // 在锁外停止并析构。ClientCore 内部保存的是非拥有的 IClientEvents*：
-    // 必须先禁止它取得新的 observer，再停网络/心跳并等待相关线程退出，最后才能
-    // DeleteGlobalRef。反过来先析构 observer，Transport 关闭回调会访问悬空指针。
+    // 析构顺序：先断开网络与事件源，再按依赖逆序释放认证会话组件。
     if (core) {
+        core->setAuthProtocolSink(nullptr);
         core->setEventSink(nullptr);
         core->disconnect();
     }
+    // 先从 transport 原子解绑弱引用并 join 事件源，再释放 AccountSession。
+    if (authTransport) authTransport->clearSession();
+    authTransport.reset();
+    // transport 已停止并解绑，AccountSession 不会再收到异步回调。
+    account.reset();
+    accountObserver.reset();
+    signer.reset();
+    tokenStore.reset();
+    authPlatform.reset();
+    clock.reset();
     core.reset();
     observer.reset();
 

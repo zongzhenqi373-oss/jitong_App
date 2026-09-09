@@ -19,8 +19,12 @@
 #include <unordered_map>
 
 #include "client_core/ClientCore.h"
+#include "client_core/AccountSession.h"
+#include "client_core/ClientCoreAuthTransport.h"
+#include "client_core/DeviceProofService.h"
 
 #include "jni_observer.h"
+#include "jni_auth_platform.h"
 
 namespace jt {
 
@@ -39,6 +43,17 @@ struct NativeSdkHandle {
 
     // 销毁中标记：置位后 acquire() 一律返回 nullptr，拒绝新 API 调用
     std::atomic<bool> destroying{false};
+
+    // ---------------- P5-T06：认证会话（可选，setupAccount 后建立） ----------------
+    // 声明顺序即依赖顺序；析构按逆序：session 先于 transport 先于 signer/store/clock。
+    std::shared_ptr<im::account::SystemClock> clock;
+    std::shared_ptr<im::account::ITokenStore> tokenStore;
+    std::shared_ptr<im::account::IP256Signer> signer;
+    std::shared_ptr<jt::JniAuthPlatform> authPlatform;
+    std::shared_ptr<im::account::ClientCoreAuthTransport> authTransport;
+    std::shared_ptr<im::account::AccountSession> account;
+    // 账号事件桥（AccountEvent → Kotlin）。shared_ptr 便于析构时先清引用。
+    std::shared_ptr<void> accountObserver;
 
     /**
      * 在锁内取得内核实例。

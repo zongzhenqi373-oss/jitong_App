@@ -153,11 +153,12 @@ fi
 if [[ "$RUN_CLIENT" -eq 1 ]]; then
   # 第二轮新增 P3/P4：frame_codec（线格式边界）、transport（回环 TLS 生命周期/重连）、
   # secure_channel（四步握手 + 加密帧 + 负向）也必须纳入 ASan/UBSan。
-  run_suite 'client_core（协议、存储、回环网络、帧编解码、Transport、安全通道）' \
+  run_suite 'client_core（协议、存储、回环网络、帧编解码、Transport、安全通道、认证域）' \
     "$ROOT/client_core" "$ROOT/client_core/build-sanitize" \
-    '^(protocol|storage|integration|frame_codec|transport|secure_channel)$'
+    '^(protocol|storage|integration|frame_codec|transport|secure_channel|auth_state_machine|token_manager|device_proof_service|reconnect_policy|auth_request_builder|account_session)$'
   run_macos_leaks 'client_core' "$ROOT/client_core" "$ROOT/client_core/build-leaks" \
-    test_protocol test_storage test_integration test_frame_codec test_transport test_secure_channel
+    test_protocol test_storage test_integration test_frame_codec test_transport test_secure_channel \
+    test_auth_state_machine test_token_manager test_device_proof_service test_reconnect_policy test_auth_request_builder
 fi
 
 if [[ "$RUN_SERVER" -eq 1 ]]; then

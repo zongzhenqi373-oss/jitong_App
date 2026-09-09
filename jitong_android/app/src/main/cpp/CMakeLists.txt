@@ -99,8 +99,11 @@ target_compile_definitions(client_core PRIVATE CLIENT_CORE_TEST_HOOKS)
 # ---------------------------------------------------------------------------
 add_library(jitong_kernel SHARED
     im_core_jni.cpp
+    im_auth_jni.cpp
+    jni_auth_platform.cpp
     native_sdk_handle.cpp
     jni_observer.cpp
+    jni_account_observer.cpp
 )
 
 # 版本注入：CMake 的 -DVAR=... 只是「CMake 变量」，不会自动成为 C++ 宏，

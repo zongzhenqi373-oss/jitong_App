@@ -37,6 +37,14 @@ set(CLIENT_CORE_SOURCES
     src/transport/FrameCodec.cpp
     src/transport/ClientSecureChannel.cpp
     src/transport/DeviceProof.cpp
+    src/account/AccountTypes.cpp
+    src/account/AuthStateMachine.cpp
+    src/account/TokenManager.cpp
+    src/account/DeviceProofService.cpp
+    src/account/ReconnectPolicy.cpp
+    src/account/AuthRequestBuilder.cpp
+    src/account/AccountSession.cpp
+    src/account/ClientCoreAuthTransport.cpp
 )
 if(CLIENT_CORE_WITH_SQLITE)
     list(APPEND CLIENT_CORE_SOURCES src/SqliteStorage.cpp)
@@ -225,6 +233,35 @@ if(CLIENT_CORE_BUILD_TESTS)
     target_compile_definitions(test_secure_channel PRIVATE
         CLIENT_CORE_GOLDEN_JSON="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/app-security-v1.json")
     add_test(NAME secure_channel COMMAND test_secure_channel)
+
+    # ---------------- P5 认证域（纯 C++，无 IO，确定性单测） ----------------
+    add_executable(test_auth_state_machine tests/test_auth_state_machine.cpp)
+    target_link_libraries(test_auth_state_machine PRIVATE client_core)
+    add_test(NAME auth_state_machine COMMAND test_auth_state_machine)
+
+    add_executable(test_token_manager tests/test_token_manager.cpp)
+    target_link_libraries(test_token_manager PRIVATE client_core)
+    add_test(NAME token_manager COMMAND test_token_manager)
+
+    add_executable(test_device_proof_service tests/test_device_proof_service.cpp)
+    target_link_libraries(test_device_proof_service PRIVATE client_core)
+    target_include_directories(test_device_proof_service PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    add_test(NAME device_proof_service COMMAND test_device_proof_service)
+
+    add_executable(test_reconnect_policy tests/test_reconnect_policy.cpp)
+    target_link_libraries(test_reconnect_policy PRIVATE client_core)
+    add_test(NAME reconnect_policy COMMAND test_reconnect_policy)
+
+    add_executable(test_auth_request_builder tests/test_auth_request_builder.cpp)
+    target_link_libraries(test_auth_request_builder PRIVATE client_core)
+    target_include_directories(test_auth_request_builder PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/../protocol)
+    add_test(NAME auth_request_builder COMMAND test_auth_request_builder)
+
+    add_executable(test_account_session tests/test_account_session.cpp)
+    target_link_libraries(test_account_session PRIVATE client_core)
+    target_include_directories(test_account_session PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    add_test(NAME account_session COMMAND test_account_session)
 endif()
 
 # ---------------- im_cli 命令行演示客户端 ----------------

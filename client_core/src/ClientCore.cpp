@@ -120,6 +120,7 @@ ClientCore::ClientCore(ClientConfig config)
         dispatchPacket(type, payload, len);
     });
     m_transport->setCloseHandler([this]() {
+        if (auto* sink = m_authSink.load()) sink->onConnectionClosed();
         if (auto* ev = m_events.load()) ev->onConnectionClosed();
     });
 }
@@ -132,6 +133,13 @@ ClientCore::~ClientCore()
 
 void ClientCore::setEventSink(IClientEvents* events) { m_events.store(events); }
 void ClientCore::setStorage(IStorage* storage) { m_storage.store(storage); }
+void ClientCore::setAuthProtocolSink(IAuthProtocolSink* sink) { m_authSink.store(sink); }
+
+void ClientCore::sendAuthRaw(protType type, const std::string& payload)
+{
+    // 与业务帧同一发送路径：安全通道建立后自动加密为 1040。
+    sendPacket(type, payload);
+}
 
 // ---------------- 连接管理 ----------------
 
@@ -165,6 +173,13 @@ bool ClientCore::isConnected() const
     return m_transport->isOpen();
 }
 
+std::vector<unsigned char> ClientCore::appSessionId() const
+{
+    if (!m_secureChannel || !m_secureChannel->established()) return {};
+    const auto& sid = m_secureChannel->sessionId();
+    return std::vector<unsigned char>(sid.begin(), sid.end());
+}
+
 // ---------------- 协议分发 ----------------
 
 void ClientCore::initFunArr()
@@ -181,6 +196,10 @@ void ClientCore::initFunArr()
     m_dealFunArr[DEF_PROT_KICKED_OFFLINE - DEF_BASE] = &ClientCore::onKickedOfflinePkt;
     m_dealFunArr[DEF_PROT_ROAM_CONV_RS   - DEF_BASE] = &ClientCore::onRoamConvRs;
     m_dealFunArr[DEF_PROT_ROAM_MSG_RS    - DEF_BASE] = &ClientCore::onRoamMsgRs;
+    // P5-T06：Token 认证响应
+    m_dealFunArr[DEF_PROT_TOKEN_LOGIN_RS   - DEF_BASE] = &ClientCore::onTokenLoginRs;
+    m_dealFunArr[DEF_PROT_TOKEN_REFRESH_RS - DEF_BASE] = &ClientCore::onRefreshTokenRs;
+    m_dealFunArr[DEF_PROT_LOGOUT_RS        - DEF_BASE] = &ClientCore::onLogoutRs;
 }
 
 void ClientCore::dispatchPacket(protType type, const char* payload, std::size_t len)
@@ -663,7 +682,8 @@ void ClientCore::onHeartbeatRs(const char*, std::size_t)
 
 void ClientCore::onKickedOfflinePkt(const char*, std::size_t)
 {
-    // 被踢下线（同账号在别处登录）：通知 UI，由 UI 决定提示与收尾
+    // 被踢下线（同账号在别处登录）：通知认证 sink + UI。
+    if (auto* sink = m_authSink.load()) sink->onKicked(0);
     if (auto* ev = m_events.load()) ev->onKickedOffline(0);
 }
 
@@ -693,7 +713,56 @@ void ClientCore::onLoginRs(const char* data, std::size_t len)
         m_myId = rs.userid();
         m_accessToken = rs.access_token(); // HTTP 文件服务鉴权用，跟 socket 侧同一枚 token
     }
+    // P5-T06：优先回调认证 sink（AccountSession 编排）；否则走旧的 UI 直连事件。
+    if (auto* sink = m_authSink.load()) {
+        AuthTokenPayload p;
+        p.result = rs.result();
+        p.userId = rs.userid();
+        p.accessToken = rs.access_token();
+        p.refreshToken = rs.refresh_token();
+        p.accessExpireAt = rs.access_token_expire_at();
+        p.refreshExpireAt = rs.refresh_token_expire_at();
+        p.sessionId = rs.session_id();
+        sink->onLoginRs(p);
+    }
     if (auto* ev = m_events.load()) ev->onLoginResult(rs.result(), rs.userid());
+}
+
+void ClientCore::onTokenLoginRs(const char* data, std::size_t len)
+{
+    im::proto::TokenLoginRs rs;
+    if (!parsePayload(data, len, rs)) return;
+    if (rs.result() == LOGIN_SUCCESS) m_myId = rs.userid();
+    if (auto* sink = m_authSink.load()) {
+        sink->onTokenLoginRs(rs.result(), rs.userid(), rs.access_token_expire_at());
+    }
+    // 兼容旧 UI：token 登录成功也当作登录成功上抛
+    if (auto* ev = m_events.load()) ev->onLoginResult(rs.result(), rs.userid());
+}
+
+void ClientCore::onRefreshTokenRs(const char* data, std::size_t len)
+{
+    im::proto::RefreshTokenRs rs;
+    if (!parsePayload(data, len, rs)) return;
+    if (auto* sink = m_authSink.load()) {
+        AuthTokenPayload p;
+        p.result = rs.result();
+        p.accessToken = rs.access_token();
+        p.refreshToken = rs.refresh_token();
+        p.accessExpireAt = rs.access_token_expire_at();
+        p.refreshExpireAt = rs.refresh_token_expire_at();
+        p.sessionId = rs.session_id();
+        sink->onRefreshTokenRs(p);
+    }
+    // 刷新成功时同步更新 HTTP 鉴权用 access_token
+    if (rs.result() == 0 && !rs.access_token().empty()) m_accessToken = rs.access_token();
+}
+
+void ClientCore::onLogoutRs(const char* data, std::size_t len)
+{
+    im::proto::LogoutRs rs;
+    if (!parsePayload(data, len, rs)) return;
+    if (auto* sink = m_authSink.load()) sink->onLogoutRs(rs.result());
 }
 
 void ClientCore::onFriendInfoPkt(const char* data, std::size_t len)

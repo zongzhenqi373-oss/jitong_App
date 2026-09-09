@@ -9,4 +9,8 @@ object AppIdentityPins {
     )
 
     fun publicKey(keyId: Int): ByteArray? = keys[keyId]?.copyOf()
+
+    /** Native 内核注入同一份应用身份信任根，避免 Java/C++ 各维护一份常量。 */
+    fun publicKeyBase64(keyId: Int): String? =
+        keys[keyId]?.let { Base64.getEncoder().encodeToString(it) }
 }

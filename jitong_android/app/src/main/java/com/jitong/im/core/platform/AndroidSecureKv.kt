@@ -29,7 +29,7 @@ class AndroidSecureKv(
             val plainText = Base64.encodeToString(blob, Base64.DEFAULT)
             val encrypted = TokenVault.encrypt(plainText)
             kv.encode(keyPrefix + key, Base64.encodeToString(encrypted, Base64.DEFAULT))
-        }.isSuccess
+        }.getOrDefault(false)
 
     override fun erase(key: String) {
         kv.removeValueForKey(keyPrefix + key)

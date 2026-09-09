@@ -67,7 +67,17 @@ object NativeBindings {
      * 创建内核句柄。
      * @return 不透明句柄 id；0 表示创建失败（0 被保留为无效句柄）
      */
-    external fun nativeCreate(serverName: String?): Long
+    fun nativeCreate(serverName: String?): Long {
+        val key = com.jitong.im.net.AppIdentityPins.publicKeyBase64(1) ?: return 0L
+        return nativeCreateConfigured(serverName, 1, key)
+    }
+
+    /** 真实 JNI 创建入口；信任根必须显式注入，Native 侧仍执行长度校验并 fail-close。 */
+    private external fun nativeCreateConfigured(
+        serverName: String?,
+        identityKeyId: Int,
+        identityPublicKeyBase64: String,
+    ): Long
 
     /** 销毁句柄。幂等且并发安全：重复/并发调用只有一次真正生效。 */
     external fun nativeDestroy(handle: Long)
@@ -128,4 +138,34 @@ object NativeBindings {
         spkiPinBase64: String,
         plaintextMarker: String,
     ): String
+
+    // ---------------- P5-T06：认证会话（厚内核编排） ----------------
+
+    /**
+     * 在已创建的句柄上建立认证会话：绑定服务端地址与账号事件回调。
+     * 之后所有连接/握手/设备签名/Token/刷新/重连/被踢均由 C++ AccountSession 编排。
+     * @return 是否建立成功（句柄无效/事件桥无效返回 false）
+     */
+    external fun nativeAccountSetup(
+        handle: Long,
+        serverIp: String,
+        port: Int,
+        accountSink: NativeAccountSink,
+        platform: com.jitong.im.core.platform.NativeAuthPlatform,
+    ): Boolean
+
+    /** 密码登录（首次/换账号）。返回 operationId（0 表示被拒/无会话）。 */
+    external fun nativeAccountLoginWithPassword(handle: Long, account: String, password: String): Long
+
+    /** 冷启动自动登录：有未过期凭据则 Token 登录，否则返回 0（需密码登录）。 */
+    external fun nativeAccountStartWithSavedToken(handle: Long, account: String): Long
+
+    /** 登出（allDevices=true 登出全部设备）。 */
+    external fun nativeAccountLogout(handle: Long, allDevices: Boolean)
+
+    /** 取消进行中的认证（连点/放弃）。 */
+    external fun nativeAccountCancel(handle: Long)
+
+    /** 查询当前 AccountState 序号；-1 表示无会话。 */
+    external fun nativeAccountGetState(handle: Long): Int
 }

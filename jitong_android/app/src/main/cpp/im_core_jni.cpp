@@ -155,6 +155,13 @@ JNIEXPORT void JNICALL JNI_OnUnload(JavaVM* /*vm*/, void* /*reserved*/)
     g_vm = nullptr;
 }
 
+// P5-T06：为其它 TU（im_auth_jni.cpp）提供进程 JavaVM* 的外部链接访问器。
+// g_vm 在匿名 namespace 内（内部链接），跨 TU 需通过本函数取得。
+JavaVM* jtGlobalJavaVm()
+{
+    return g_vm;
+}
+
 // Kotlin: com.jitong.im.core.NativeBindings.nativeVersion(): String
 JNIEXPORT jstring JNICALL
 Java_com_jitong_im_core_NativeBindings_nativeVersion(JNIEnv* env, jclass /*clazz*/)
@@ -203,10 +210,11 @@ bool attachObserver(jlong handleId, jobject sink)
 
 } // namespace
 
-// Kotlin: NativeBindings.nativeCreate(serverName: String?): Long
+// Kotlin: NativeBindings.nativeCreateConfigured(serverName, keyId, publicKeyBase64): Long
 JNIEXPORT jlong JNICALL
-Java_com_jitong_im_core_NativeBindings_nativeCreate(JNIEnv* env, jclass /*clazz*/,
-                                                    jstring serverName)
+Java_com_jitong_im_core_NativeBindings_nativeCreateConfigured(JNIEnv* env, jclass /*clazz*/,
+                                                              jstring serverName, jint keyId,
+                                                              jstring publicKeyBase64)
 {
     std::string name;
     if (serverName != nullptr) {
@@ -216,8 +224,18 @@ Java_com_jitong_im_core_NativeBindings_nativeCreate(JNIEnv* env, jclass /*clazz*
             env->ReleaseStringUTFChars(serverName, s);
         }
     }
+    std::string identityKey;
+    if (publicKeyBase64 != nullptr) {
+        const char* key = env->GetStringUTFChars(publicKeyBase64, nullptr);
+        if (key != nullptr) {
+            identityKey = key;
+            env->ReleaseStringUTFChars(publicKeyBase64, key);
+        }
+    }
     try {
-        const jlong id = jt::createHandle(name, {});
+        if (keyId <= 0 || identityKey.empty()) return 0;
+        const jlong id = jt::createHandle(
+            name, {{static_cast<std::uint32_t>(keyId), identityKey}});
         __android_log_print(ANDROID_LOG_INFO, "JitongKernel", "nativeCreate('%s') -> %lld",
                             name.c_str(), static_cast<long long>(id));
         return id;

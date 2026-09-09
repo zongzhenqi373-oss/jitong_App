@@ -56,6 +56,33 @@ class ClientSecureChannel;
 class DeviceProofKey;
 }
 
+// 认证协议原始响应回调（P5-T06）。
+// 由 AccountSession 的生产适配器（ClientCoreAuthTransport）实现，用于接收
+// TokenLoginRs / RefreshTokenRs / LogoutRs / KickedOffline 的解析结果，从而把认证域的
+// 编排（连接/登录/刷新/重连/被踢）从 ClientCore 抽出、交给统一的 C++ 内核状态机处理。
+// 非拥有指针，默认不设置（老的同步 sendLogin 流程不受影响）。
+struct AuthTokenPayload {
+    int result = 0;
+    int userId = 0;
+    std::string accessToken;
+    std::string refreshToken;
+    std::int64_t accessExpireAt = 0;
+    std::int64_t refreshExpireAt = 0;
+    std::string sessionId;
+};
+class IAuthProtocolSink {
+public:
+    virtual ~IAuthProtocolSink() = default;
+    // 应用握手完成（安全通道就绪，可发认证请求）；失败表示连接/握手失败
+    virtual void onSecureChannelReady(bool ok) = 0;
+    virtual void onLoginRs(const AuthTokenPayload& p) = 0;
+    virtual void onTokenLoginRs(int result, int userId, std::int64_t accessExpireAt) = 0;
+    virtual void onRefreshTokenRs(const AuthTokenPayload& p) = 0;
+    virtual void onLogoutRs(int result) = 0;
+    virtual void onKicked(int reason) = 0;
+    virtual void onConnectionClosed() = 0;
+};
+
 // UI 事件回调接口（由 UI 层实现）
 class IClientEvents {
 public:
@@ -144,6 +171,14 @@ public:
     // 注入事件回调（非拥有指针，调用方保证生命周期长于 ClientCore）
     void setEventSink(IClientEvents* events);
 
+    // P5-T06：注入认证协议 sink（非拥有指针）。设置后 TokenLoginRs/RefreshTokenRs/
+    // LogoutRs/被踢/握手完成/断开会额外回调它，供 AccountSession 的生产适配器编排认证。
+    void setAuthProtocolSink(IAuthProtocolSink* sink);
+
+    // P5-T06：发送一个已构造好的认证请求 payload（TokenLoginRq/RefreshTokenRq/LogoutRq）。
+    // 走与业务帧相同的加密发送路径（安全通道建立后自动加密）。
+    void sendAuthRaw(proto::protType type, const std::string& payload);
+
     // 注入本地存储（可选，非拥有指针）；设置后自动持久化资料与聊天记录
     void setStorage(IStorage* storage);
 
@@ -151,6 +186,9 @@ public:
     bool connectToServer(const std::string& ip, std::uint16_t port = proto::TCP_PORT);
     void disconnect();
     bool isConnected() const;
+
+    // P5-T06：应用安全通道 sessionId（握手成功后有效，否则为空）。设备证明签名需要它。
+    std::vector<unsigned char> appSessionId() const;
 
     // ---------------- 心跳保活 ----------------
     // 心跳间隔（毫秒，默认 30000）。连接成功后每间隔发一次 HEARTBEAT_RQ；
@@ -223,6 +261,10 @@ private:
     // 协议处理函数
     void onRegisterRs(const char* data, std::size_t len);
     void onLoginRs(const char* data, std::size_t len);
+    // P5-T06：Token 认证响应处理（注册进 m_dealFunArr，仅在设置了 m_authSink 时回调它）
+    void onTokenLoginRs(const char* data, std::size_t len);
+    void onRefreshTokenRs(const char* data, std::size_t len);
+    void onLogoutRs(const char* data, std::size_t len);
     void onFriendInfoPkt(const char* data, std::size_t len);
     void onChatInfoRq(const char* data, std::size_t len);
     void onChatInfoRs(const char* data, std::size_t len);
@@ -279,6 +321,8 @@ private:
     //跨线程指针：UI 线程设置（setEventSink/setStorage），asio io 线程与心跳线程读取
     std::atomic<IClientEvents*> m_events{nullptr};
     std::atomic<IStorage*> m_storage{nullptr};
+    // P5-T06：认证协议 sink（AccountSession 生产适配器）。非拥有指针。
+    std::atomic<IAuthProtocolSink*> m_authSink{nullptr};
     std::unique_ptr<TcpTransport> m_transport;
 
     // 会话状态（登录成功后填充）
