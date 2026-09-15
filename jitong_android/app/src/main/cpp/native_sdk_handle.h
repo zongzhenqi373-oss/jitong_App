@@ -20,11 +20,14 @@
 
 #include "client_core/ClientCore.h"
 #include "client_core/AccountSession.h"
+#include "client_core/storage/NativeDatabase.h"
 #include "client_core/ClientCoreAuthTransport.h"
 #include "client_core/DeviceProofService.h"
+#include "client_core/runtime/ClientRuntime.h"
 
 #include "jni_observer.h"
 #include "jni_auth_platform.h"
+#include "jni_db_key_bridge.h"
 
 namespace jt {
 
@@ -54,6 +57,18 @@ struct NativeSdkHandle {
     std::shared_ptr<im::account::AccountSession> account;
     // 账号事件桥（AccountEvent → Kotlin）。shared_ptr 便于析构时先清引用。
     std::shared_ptr<void> accountObserver;
+
+    // P7-G3：账号级运行时（唯一拥有业务服务、数据库与 completion executor）。
+    // 析构顺序见 destroyHandleLocked：runtime 先于 db（runtime 依赖 db）。
+    std::shared_ptr<im::runtime::ClientRuntime> runtime;
+
+    // P6：按账号打开的 Native 数据底座（影子库）。析构顺序见 destroyHandleLocked：
+    // 停队列 → 关读池 → 关写连接 → 清 key，早于 core.reset()。
+    std::shared_ptr<im::storage::NativeDatabase> db;
+    // 当前 db 对应的账号（0 表示未打开）；迁移/自检接口据此知道操作哪个账号。
+    std::int64_t dbOwnerId = 0;
+    // 库密钥平台桥（仅 open 时经它取 key；保留 GlobalRef 供显式 deleteKey 使用）。
+    std::shared_ptr<jt::JniDbKeyBridge> dbKeyBridge;
 
     /**
      * 在锁内取得内核实例。

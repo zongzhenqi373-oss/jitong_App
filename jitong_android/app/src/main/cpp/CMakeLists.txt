@@ -79,8 +79,12 @@ find_package(OpenSSL REQUIRED)
 # ---------------------------------------------------------------------------
 set(CLIENT_CORE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(CLIENT_CORE_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-set(CLIENT_CORE_WITH_SQLITE OFF CACHE BOOL "" FORCE)   # P1 首阶段关闭，P6 再开
+set(CLIENT_CORE_WITH_SQLITE OFF CACHE BOOL "" FORCE)   # 明文系统 SQLite：Android 上保持关闭
 set(CLIENT_CORE_WITH_MEDIA  OFF CACHE BOOL "" FORCE)   # P1 首阶段关闭，P10 再开
+# P6-T01：C++ SQLCipher 数据底座。Android 走「方案 A」——链接 Room 自带 AAR 的
+# libsqlcipher.so（4.6.1），零体积增量、无双库符号冲突。详见
+# outputs/kernel-round5-encryption-note.md 的 S0 决策记录。
+set(CLIENT_CORE_WITH_SQLCIPHER ON CACHE BOOL "" FORCE)
 
 # CMAKE_CURRENT_SOURCE_DIR = <repo>/jitong_android/app/src/main/cpp
 # 五级 .. 到达仓库根，复用同一份 client_core（桌面/Android 同源）
@@ -100,10 +104,14 @@ target_compile_definitions(client_core PRIVATE CLIENT_CORE_TEST_HOOKS)
 add_library(jitong_kernel SHARED
     im_core_jni.cpp
     im_auth_jni.cpp
+    im_db_jni.cpp
+    im_runtime_jni.cpp
     jni_auth_platform.cpp
+    jni_db_key_bridge.cpp
     native_sdk_handle.cpp
     jni_observer.cpp
     jni_account_observer.cpp
+    jni_runtime_observer.cpp
 )
 
 # 版本注入：CMake 的 -DVAR=... 只是「CMake 变量」，不会自动成为 C++ 宏，

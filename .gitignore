@@ -1,24 +1,47 @@
-.DS_Store
-*.iml
-**/.gradle/
-**/.idea/
-**/.kotlin/
-**/local.properties
-**/build/
-**/captures/
-**/.externalNativeBuild/
-**/.cxx/
-*.db
-*.db-shm
-*.db-wal
-*.log
-im_server/config/ai.env
-im_server/config/dev_server.key
-im_server/config/dev_server.crt
+# 编译产物
+build/
+*.obj
+
+# im_server 运行时产物
+im_server/data/
+im_server/uploads/
+im_server/security-reports/
+im_server/config/*.key
+im_server/config/*.crt
 im_server/config/*.pem
-*.docx
-*.pdf
-*.html
-security-reports/
-uploads/
-tmp/
+im_server/config/ai.env
+*.o
+*.tlog
+*.ipch
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.lib
+
+# Qt 生成文件
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+Makefile
+*.pro.user
+
+# Visual Studio
+.vs/
+*.suo
+*.ncb
+Debug/
+Release/
+x64/
+
+# 系统文件
+Thumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+.vscode/
+
+# SQLCipher amalgamation 源文件（9MB+，由 scripts/build-sqlcipher-host.sh 生成，不入库）
+# 注意：sqlite3.h 保留入库（646KB），以保证 Android/桌面构建期都能拿到声明、构建可复现
+client_core/third_party/sqlcipher/sqlite3.c

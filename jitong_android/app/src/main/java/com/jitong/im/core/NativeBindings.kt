@@ -85,6 +85,39 @@ object NativeBindings {
     /** 挂上事件接收器；句柄无效时返回 false。 */
     external fun nativeSetEventSink(handle: Long, sink: NativeEventSink): Boolean
 
+    // ---------------- P7-G3：账号级 Runtime 生命周期 ----------------
+    // Runtime 唯一拥有业务服务、数据库与 completion executor。
+    // JNI 层不暴露 SQL、Socket、Token、DB key、sqlite3* 或 C++ 裸对象地址。
+
+    /** 创建并挂载账号级 Runtime（同账号唯一）。 */
+    external fun nativeCreateRuntime(handle: Long, ownerId: Int): Boolean
+    /** 绑定 Runtime 的合并失效通知和可靠命令终态回调。 */
+    external fun nativeSetRuntimeEventSink(handle: Long, sink: NativeRuntimeSink): Boolean
+
+    /** 启动 Runtime；幂等。返回 runtimeGeneration（0 表示失败）。 */
+    external fun nativeStartRuntime(handle: Long): Long
+
+    /** 停止 Runtime（保留对象，可再次 start）。 */
+    external fun nativeStopRuntime(handle: Long)
+
+    /** 登出：停止并递增 generation，使在途旧 generation 事件失效。 */
+    external fun nativeLogoutRuntime(handle: Long)
+
+    /** Runtime 状态名：Idle/Starting/Running/Stopping/Stopped/Destroyed。 */
+    external fun nativeGetRuntimeState(handle: Long): String
+    external fun nativeRuntimeSendText(
+        handle: Long, conversationId: Long, peerId: Long, text: String,
+        pinyin: String, initials: String,
+    ): String
+    external fun nativeRuntimeMarkRead(handle:Long,conversationId:Long,readSeq:Long):String
+    external fun nativeRuntimeFlushOutbox(handle: Long, nowSeconds: Long, limit: Int): Int
+    external fun nativeRuntimeConsumeInvalidation(handle: Long, domain: Int): Long
+    external fun nativeRuntimeConsumeOperation(handle: Long, operationId: String): String
+    external fun nativeRuntimeRequestRoamConversations(handle: Long): Boolean
+    external fun nativeRuntimeRequestRoamMessages(
+        handle: Long, peerId: Long, beforeSeq: Long, limit: Int,
+    ): Boolean
+
     /** 当前存活句柄数，用于压力测试断言无泄漏。 */
     external fun nativeHandleCount(): Int
 
@@ -92,7 +125,13 @@ object NativeBindings {
      * 生命周期压力测试（创建销毁 N 次 + 幂等 + 野句柄 + 回调销毁并发）。
      * 返回 key=value 报告，末行 `result=ok|FAIL`。
      */
-    external fun nativeLifecycleStressTest(iterations: Int, sink: NativeEventSink?): String
+    fun nativeLifecycleStressTest(iterations: Int, sink: NativeEventSink?): String {
+        val key = com.jitong.im.net.AppIdentityPins.publicKeyBase64(1)
+            ?: return "result=FAIL\nerror=identity_key_missing"
+        return nativeLifecycleStressTestConfigured(iterations, sink, 1, key)
+    }
+    private external fun nativeLifecycleStressTestConfigured(iterations: Int, sink: NativeEventSink?,
+                                                              keyId: Int, publicKeyBase64: String): String
 
     /** 测试专用：由 C++ 构造包含中文和非 BMP emoji 的标准 UTF-8，再走真实 JNI 回调。 */
     external fun nativeEmitUtf8Test(handle: Long): Boolean
@@ -168,4 +207,85 @@ object NativeBindings {
 
     /** 查询当前 AccountState 序号；-1 表示无会话。 */
     external fun nativeAccountGetState(handle: Long): Int
+
+    // ---------------- P6-T01：加密 fixture 双向验证（仅测试使用） ----------------
+    // 这两个接口只接受"路径 + 32 字节 key"，只能操作固定结构的 native_probe 表，
+    // 不接受任意 SQL，也不返回数据库句柄或 key；仅用于证明 Room 与 Native 可互开
+    // 同一份加密库（S1-3）。返回形如 "ok|cipher=4.6.1 community|..." 或 "err|<code>|<msg>"。
+
+    /** 创建（覆盖）一个加密 fixture 库，内含 native_probe 表与固定 marker。 */
+    external fun nativeCipherCreateFixtureForTest(path: String, key: ByteArray): String
+
+    /** 只读打开既有加密库，回报 cipher 版本、表数量与 native_probe 的 marker。 */
+    external fun nativeCipherVerifyFixtureForTest(path: String, key: ByteArray): String
+
+    // ---------------- P6-T05/S6：正式数据库生命周期与影子迁移 ----------------
+    // key 经平台密钥桥（NativeDbKeyPlatform）从 DbKeyManager 解出，不再由调用方直接传。
+    // 数据库由 NativeSdkHandle 持有；不暴露任意 SQL / 裸句柄 / key。
+
+    /**
+     * 打开（或创建）账号影子库，数据库挂到句柄上。
+     * @param bridge [com.jitong.im.core.platform.NativeDbKeyPlatform]（当前登录态 passHash 的密钥桥）
+     * @return 是否打开成功；无 passHash（Token-only 冷启动）时返回 false 且保持锁定
+     */
+    external fun nativeOpenAccountDatabase(
+        handle: Long,
+        ownerId: Int,
+        filesDir: String,
+        bridge: com.jitong.im.core.platform.NativeDbKeyPlatform,
+    ): Boolean
+
+    /** 关闭当前账号数据库（普通 logout 只关库，不删数据）。 */
+    external fun nativeCloseAccountDatabase(handle: Long)
+
+    /** 开始影子导入：Disabled → ShadowImport；已 Verified 返回 false 拒绝重复迁移。 */
+    external fun nativeBeginMigration(handle: Long): Boolean
+
+    /** 回滚到 ShadowImport：清完成标记与 checkpoint（不删生产数据）。 */
+    external fun nativeResetMigration(handle: Long): Boolean
+
+    /**
+     * 提交一个迁移批次（消息 + FTS + 会话摘要 + checkpoint 在**一个事务**内提交）。
+     * @param batch 由 [com.jitong.im.data.MigrationExporter] 编码的长度前缀二进制
+     * @return "ok|imported=N" 或 "err|<code>|<msg>"
+     */
+    external fun nativeSubmitMigrationBatch(handle: Long, batch: ByteArray,
+                                            checkpoint: String): String
+
+    /** 提交一个会话元数据批次（unread/lastMsg/lastTs，权威覆盖，独立 checkpoint）。 */
+    external fun nativeSubmitConversationBatch(handle: Long, batch: ByteArray,
+                                               checkpoint: String): String
+
+    /** 全量对账并写完成标记；对账不一致返回 err|VerifyFailed|... 且不写标记。 */
+    external fun nativeFinishMigration(handle: Long, expectedMessages: Long,
+                                       expectedConversations: Long, expectedMinSeq: Long,
+                                       expectedMaxSeq: Long, expectedFts: Long): String
+
+    /** 查询迁移状态：completed / checkpoint / 当前摘要。 */
+    external fun nativeGetMigrationState(handle: Long): String
+
+    /** 数据库自检：cipher 版本 / schema 版本 / 迁移完成状态 / 摘要。 */
+    external fun nativeRunDatabaseSelfTest(handle: Long): String
+
+    /** 搜索 Native 消息库；返回版本化长度前缀二进制，失败返回 null。 */
+    external fun nativeSearchMessages(
+        handle: Long,
+        conversationId: Long,
+        keyword: String,
+        limit: Int,
+    ): ByteArray?
+
+    /** 按稳定 keyset 游标读取会话历史；返回 JTHP v1 二进制。 */
+    external fun nativeLoadHistory(
+        handle: Long,
+        conversationId: Long,
+        limit: Int,
+        hasCursor: Boolean,
+        cursorTime: Long,
+        cursorSeq: Long,
+        cursorOrder: Long,
+        cursorMsgId: String,
+    ): ByteArray?
+    /** 读取账号会话快照；返回 JTCL v1 二进制。 */
+    external fun nativeLoadConversations(handle: Long): ByteArray?
 }

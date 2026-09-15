@@ -14,6 +14,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(IM_SERVER_BUILD_TESTS "Build im_server e2e tests" ON)
 option(IM_SERVER_BUILD_AI_SMOKE "Build manual AI API smoke tool" ON)
+option(IM_SERVER_BUILD_BENCH "Build database benchmark tool" ON)
 
 if(MSVC)
     add_compile_options(/utf-8 /W4)
@@ -114,6 +115,12 @@ if(IM_SERVER_BUILD_AI_SMOKE)
     target_link_libraries(ai_api_smoke PRIVATE im_server_lib)
 endif()
 
+# 数据库层压测工具（不走网络，直接驱动 imsrv::Database），不注册为 CTest。
+if(IM_SERVER_BUILD_BENCH)
+    add_executable(bench_db tools/bench_db.cpp)
+    target_link_libraries(bench_db PRIVATE im_server_lib)
+endif()
+
 # ---------------- e2e 测试（真服务端 + client_core 真客户端回环） ----------------
 if(IM_SERVER_BUILD_TESTS)
     enable_testing()
@@ -164,6 +171,17 @@ if(IM_SERVER_BUILD_TESTS)
     # P4 已完成 C++ ClientSecureChannel，客户端现在会真正完成应用层安全握手，
     # 因此恢复完整业务 e2e（不再 DISABLED，也没有任何绕过服务端状态机的开关）。
     set_tests_properties(e2e PROPERTIES TIMEOUT 300)
+
+    # 网络层压测工具（进程内起服务端 + client_core 真客户端回环），不注册 CTest。
+    add_executable(load_client tools/load_client.cpp)
+    add_dependencies(load_client test_tls_material)
+    target_compile_definitions(load_client PRIVATE
+        IM_SERVER_TEST_CERT="${TEST_TLS_CERT}"
+        IM_SERVER_TEST_KEY="${TEST_TLS_KEY}"
+        IM_SERVER_TEST_APP_IDENTITY_KEY="${TEST_APP_IDENTITY_KEY}"
+    )
+    target_link_libraries(load_client PRIVATE im_server_lib client_core)
+    target_include_directories(load_client PRIVATE ${ASIO_INCLUDE})
 
     add_executable(test_security_e2e tests/test_security_e2e.cpp)
     add_dependencies(test_security_e2e test_tls_material)

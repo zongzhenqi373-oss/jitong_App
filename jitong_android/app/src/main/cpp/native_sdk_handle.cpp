@@ -38,6 +38,9 @@ bool destroyHandleLocked(const std::shared_ptr<NativeSdkHandle>& handle)
     std::shared_ptr<im::account::ITokenStore> tokenStore;
     std::shared_ptr<jt::JniAuthPlatform> authPlatform;
     std::shared_ptr<im::account::SystemClock> clock;
+    std::shared_ptr<im::runtime::ClientRuntime> runtime;
+    std::shared_ptr<im::storage::NativeDatabase> db;
+    std::shared_ptr<jt::JniDbKeyBridge> dbKeyBridge;
 
     {
         std::lock_guard<std::mutex> lk(handle->mutex);
@@ -50,6 +53,10 @@ bool destroyHandleLocked(const std::shared_ptr<NativeSdkHandle>& handle)
         tokenStore = std::move(handle->tokenStore);
         authPlatform = std::move(handle->authPlatform);
         clock = std::move(handle->clock);
+        runtime = std::move(handle->runtime);
+        db = std::move(handle->db);
+        dbKeyBridge = std::move(handle->dbKeyBridge);
+        handle->dbOwnerId = 0;
     }
 
     // 析构顺序：先断开网络与事件源，再按依赖逆序释放认证会话组件。
@@ -68,6 +75,14 @@ bool destroyHandleLocked(const std::shared_ptr<NativeSdkHandle>& handle)
     tokenStore.reset();
     authPlatform.reset();
     clock.reset();
+    // P7-G3：runtime 先于 db 释放——runtime 依赖 db，其 destroy 会关库并清在途登记
+    if (runtime) {
+        runtime->destroy();
+        runtime.reset();
+    }
+    // P6：数据底座早于 core 释放；close() 内部按「停队列 → 关读池 → 关写连接 → 清 key」。
+    db.reset();
+    dbKeyBridge.reset();
     core.reset();
     observer.reset();
 

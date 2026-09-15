@@ -36,6 +36,7 @@ class NativeLifecycleTest {
 
     @Before
     fun assumeNativeAvailable() {
+        com.tencent.mmkv.MMKV.initialize(InstrumentationRegistry.getInstrumentation().targetContext)
         // .so 缺失时跳过而不是失败：Native 是可选后端
         assumeTrue("Native .so 不可用", NativeBindings.isLoaded)
     }

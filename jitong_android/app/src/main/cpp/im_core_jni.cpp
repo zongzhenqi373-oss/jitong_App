@@ -282,27 +282,34 @@ Java_com_jitong_im_core_NativeBindings_nativeHandleCount(JNIEnv* /*env*/, jclass
  * @param sink       事件接收对象；为 null 时跳过并发回调部分
  */
 JNIEXPORT jstring JNICALL
-Java_com_jitong_im_core_NativeBindings_nativeLifecycleStressTest(JNIEnv* env, jclass /*clazz*/,
-                                                                 jint iterations, jobject sink)
+Java_com_jitong_im_core_NativeBindings_nativeLifecycleStressTestConfigured(JNIEnv* env, jclass /*clazz*/,
+                                                                 jint iterations, jobject sink,
+                                                                 jint keyId, jstring publicKeyBase64)
 {
     std::string report;
     int failures = 0;
 
     try {
+        if (keyId<=0 || !publicKeyBase64) return env->NewStringUTF("result=FAIL\nerror=identity_key_missing");
+        const char* raw=env->GetStringUTFChars(publicKeyBase64,nullptr);
+        if (!raw) return nullptr;
+        const std::string identityKey(raw);
+        env->ReleaseStringUTFChars(publicKeyBase64,raw);
+        const std::map<std::uint32_t,std::string> trust{{static_cast<std::uint32_t>(keyId),identityKey}};
         const int rounds = iterations > 0 ? iterations : 100;
         // 基线句柄数：本轮只允许「净增 0」
         const std::size_t baseline = jt::liveHandleCount();
 
         // 1) 创建 / 销毁 N 次
         for (int i = 0; i < rounds; ++i) {
-            const jlong id = jt::createHandle("stress.example", {});
+            const jlong id = jt::createHandle("stress.example", trust);
             if (id == 0) { ++failures; break; }
             if (!jt::releaseHandle(id)) ++failures;
         }
 
         // 2) 幂等：同一句柄释放两次
         {
-            const jlong id = jt::createHandle("idem.example", {});
+            const jlong id = jt::createHandle("idem.example", trust);
             const bool first = jt::releaseHandle(id);
             const bool second = jt::releaseHandle(id);
             if (!first || second) ++failures;
@@ -310,7 +317,7 @@ Java_com_jitong_im_core_NativeBindings_nativeLifecycleStressTest(JNIEnv* env, jc
 
         // 3) 野句柄：销毁后再次使用
         {
-            const jlong id = jt::createHandle("stale.example", {});
+            const jlong id = jt::createHandle("stale.example", trust);
             jt::releaseHandle(id);
             if (jt::lookupHandle(id) != nullptr) ++failures;
             if (jt::releaseHandle(id)) ++failures;
@@ -319,7 +326,7 @@ Java_com_jitong_im_core_NativeBindings_nativeLifecycleStressTest(JNIEnv* env, jc
         // 4) 回调与销毁并发
         int callbackCount = 0;
         if (sink != nullptr) {
-            const jlong id = jt::createHandle("concurrent.example", {});
+            const jlong id = jt::createHandle("concurrent.example", trust);
             auto h = jt::lookupHandle(id);
             if (h && attachObserver(id, sink)) {
                 std::atomic<bool> stop{false};

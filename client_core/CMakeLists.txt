@@ -12,6 +12,9 @@ option(CLIENT_CORE_BUILD_TOOLS "Build im_cli demo client" ON)
 # 避免过早引入 SQLCipher/ssl 之外的链接依赖；桌面端默认全开，保持原有构建路径。
 option(CLIENT_CORE_WITH_SQLITE "Build the SQLite-backed IStorage implementation" ON)
 option(CLIENT_CORE_WITH_MEDIA  "Build HTTP media upload/download (cpp-httplib + OpenSSL)" ON)
+# P6-T01：C++ SQLCipher 数据底座（Android 链接 Room 自带 AAR 的 libsqlcipher.so；
+# 桌面编译 amalgamation 以跑单测）。与上面的 WITH_SQLITE（明文 Legacy）完全分离。
+option(CLIENT_CORE_WITH_SQLCIPHER "Build the SQLCipher-backed native database (P6)" OFF)
 
 # 交叉编译（Android NDK / iOS）时构建机通常无法运行目标产物，默认关闭可执行类目标。
 if(ANDROID OR CMAKE_CROSSCOMPILING)
@@ -104,6 +107,141 @@ if(CLIENT_CORE_WITH_SQLITE)
     target_link_libraries(client_core PUBLIC SQLite3::SQLite3)
 endif()
 
+# ---------------- P6-T01：SQLCipher（C++ 数据底座） ----------------
+# 与 CLIENT_CORE_WITH_SQLITE（明文系统 SQLite，仅供桌面 Legacy/兼容测试）完全分离。
+#
+# Android 走「方案 A」：直接链接 Room 自带 AAR 内的 libsqlcipher.so（4.6.1，与
+# net.zetetic:sqlcipher-android 完全一致）→ 零体积增量、无「进程内双 SQLCipher」符号冲突。
+# 依据见 outputs/kernel-round5-encryption-note.md（S0 决策记录）。
+#
+# 桌面：编译 SQLCipher amalgamation（由 scripts/build-sqlcipher-host.sh 生成），
+#       以便在本机跑 CipherDatabase / Schema / 迁移等 C++ 单测；编译特性与 Android 对齐。
+#       头文件 sqlite3.h 已入库，sqlite3.c 由脚本生成（见 .gitignore）。
+if(CLIENT_CORE_WITH_SQLCIPHER)
+    if(ANDROID)
+        set(SQLCIPHER_AAR "" CACHE FILEPATH
+            "sqlcipher-android AAR 路径（默认从 Gradle 缓存自动探测）")
+        if(NOT SQLCIPHER_AAR)
+            file(GLOB _sqlcipher_aar_candidates
+                "$ENV{HOME}/.gradle/caches/modules-2/files-2.1/net.zetetic/sqlcipher-android/*/*/sqlcipher-android-*.aar")
+            if(_sqlcipher_aar_candidates)
+                list(GET _sqlcipher_aar_candidates -1 SQLCIPHER_AAR)
+            endif()
+        endif()
+        if(NOT EXISTS "${SQLCIPHER_AAR}")
+            message(FATAL_ERROR
+                "CLIENT_CORE_WITH_SQLCIPHER=ON 需要 sqlcipher-android AAR，但未能自动找到。\n"
+                "请显式传入：-DSQLCIPHER_AAR=<path/to/sqlcipher-android-4.6.1.aar>")
+        endif()
+        set(_sqlcipher_extract "${CMAKE_CURRENT_BINARY_DIR}/sqlcipher_aar")
+        file(MAKE_DIRECTORY "${_sqlcipher_extract}")
+        execute_process(
+            COMMAND ${CMAKE_COMMAND} -E tar xzf "${SQLCIPHER_AAR}"
+            WORKING_DIRECTORY "${_sqlcipher_extract}"
+            RESULT_VARIABLE _sqlcipher_extract_rv
+            OUTPUT_QUIET ERROR_QUIET)
+        if(NOT _sqlcipher_extract_rv EQUAL 0)
+            message(FATAL_ERROR "解压失败：${SQLCIPHER_AAR}")
+        endif()
+        set(_sqlcipher_so "${_sqlcipher_extract}/jni/${ANDROID_ABI}/libsqlcipher.so")
+        if(NOT EXISTS "${_sqlcipher_so}")
+            message(FATAL_ERROR "AAR 内缺少 jni/${ANDROID_ABI}/libsqlcipher.so：${SQLCIPHER_AAR}")
+        endif()
+        # 运行时由 AGP 从 AAR 打包进 APK；链接器只记录 SONAME=libsqlcipher.so
+        add_library(sqlcipher SHARED IMPORTED GLOBAL)
+        set_target_properties(sqlcipher PROPERTIES IMPORTED_LOCATION "${_sqlcipher_so}")
+        target_include_directories(client_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sqlcipher)
+        message(STATUS "SQLCipher(Android/方案A): ${_sqlcipher_so}")
+    else()
+        set(_sqlcipher_amalg "${CMAKE_CURRENT_SOURCE_DIR}/third_party/sqlcipher")
+        if(NOT EXISTS "${_sqlcipher_amalg}/sqlite3.c")
+            message(FATAL_ERROR
+                "缺少 SQLCipher amalgamation：${_sqlcipher_amalg}/sqlite3.c\n"
+                "请先运行：bash scripts/build-sqlcipher-host.sh")
+        endif()
+        # amalgamation 是 C 源文件；本工程 project() 只声明了 CXX，这里启用 C
+        enable_language(C)
+        add_library(sqlcipher STATIC "${_sqlcipher_amalg}/sqlite3.c")
+        set_target_properties(sqlcipher PROPERTIES C_STANDARD 99)
+        target_include_directories(sqlcipher PUBLIC "${_sqlcipher_amalg}")
+        # 编译特性与 Android 侧 AAR 对齐（见 encryption-note.md 第 3.1 节实测 compile_options）
+        target_compile_definitions(sqlcipher PUBLIC
+            SQLITE_HAS_CODEC=1
+            SQLCIPHER_CRYPTO_OPENSSL
+            SQLITE_THREADSAFE=1
+            SQLITE_TEMP_STORE=2
+            SQLITE_ENABLE_FTS3
+            SQLITE_ENABLE_FTS4
+            SQLITE_ENABLE_FTS5
+            SQLITE_DEFAULT_PAGE_SIZE=4096
+        )
+        find_package(Threads REQUIRED)
+        target_link_libraries(sqlcipher PUBLIC OpenSSL::Crypto OpenSSL::SSL
+                                              Threads::Threads ${CMAKE_DL_LIBS})
+        set_target_properties(sqlcipher PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    endif()
+
+    target_link_libraries(client_core PUBLIC sqlcipher)
+    # SQLITE_HAS_CODEC 使 sqlite3.h 中的 sqlite3_key/rekey 声明可见
+    target_compile_definitions(client_core PUBLIC
+        $<$<BOOL:${CLIENT_CORE_WITH_SQLCIPHER}>:CLIENT_CORE_WITH_SQLCIPHER=1>
+        SQLITE_HAS_CODEC=1)
+    # P6 数据底座实现（T01 打开器；T02 路径/密钥桥；T03 Schema/迁移）
+    target_sources(client_core PRIVATE
+        src/storage/CipherDatabase.cpp
+        src/storage/DatabasePaths.cpp
+        src/storage/DbKeyBridge.cpp
+        src/storage/SchemaManager.cpp
+        src/storage/DbCommandQueue.cpp
+        src/storage/ReadPool.cpp
+        src/storage/MigrationImporter.cpp
+        src/storage/NativeDatabase.cpp
+        src/storage/NativeRepository.cpp
+        src/runtime/ClientRuntime.cpp
+        src/message/MessageService.cpp
+        src/search/SearchService.cpp
+        src/friend/FriendService.cpp
+        src/ai/AiSuggestionService.cpp
+        src/sync/SyncService.cpp)
+
+    # 把 migrations/*.sql 生成为内嵌字符串头：Android/桌面都不依赖运行时文件
+    set(_sql_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/storage/migrations")
+    set(_gen_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    file(READ "${_sql_dir}/001_initial.sql" _sql_001)
+    file(READ "${_sql_dir}/002_fts_identity.sql" _sql_002)
+    file(READ "${_sql_dir}/003_p7_state_machines.sql" _sql_003)
+    file(READ "${_sql_dir}/004_local_sequence.sql" _sql_004)
+    file(READ "${_sql_dir}/005_friend_domain.sql" _sql_005)
+    file(READ "${_sql_dir}/006_ai_suggestions.sql" _sql_006)
+    file(WRITE "${_gen_dir}/migrations_sql.h"
+"// 自动生成，勿手改（来源：src/storage/migrations/*.sql）
+#ifndef CLIENT_CORE_GENERATED_MIGRATIONS_SQL_H
+#define CLIENT_CORE_GENERATED_MIGRATIONS_SQL_H
+namespace im { namespace storage {
+inline const char* kMigration001Sql = R\"SQL(
+${_sql_001}
+)SQL\";
+inline const char* kMigration002Sql = R\"SQL(
+${_sql_002}
+)SQL\";
+inline const char* kMigration003Sql = R\"SQL(
+${_sql_003}
+)SQL\";
+inline const char* kMigration004Sql = R\"SQL(
+${_sql_004}
+)SQL\";
+inline const char* kMigration005Sql = R\"SQL(
+${_sql_005}
+)SQL\";
+inline const char* kMigration006Sql = R\"SQL(
+${_sql_006}
+)SQL\";
+} } // namespace
+#endif
+")
+    target_include_directories(client_core PRIVATE "${_gen_dir}")
+endif()
+
 # cpp-httplib（httplib::SSLClient）在 macOS 上用系统信任库校验证书，需要显式链接这两个 framework
 if(APPLE)
     target_link_libraries(client_core PUBLIC "-framework Security" "-framework CoreFoundation")
@@ -128,6 +266,44 @@ if(CLIENT_CORE_BUILD_TESTS)
     target_include_directories(test_frame_codec PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_test(NAME frame_codec COMMAND test_frame_codec)
 
+    # P7-G1：Harness Fake 基础设施自检（确定性时钟/调度/随机 + 故障注入）
+    add_executable(test_testing_fakes tests/test_testing_fakes.cpp)
+    target_link_libraries(test_testing_fakes PRIVATE client_core)
+    add_test(NAME testing_fakes COMMAND test_testing_fakes)
+
+    # P7-G4：同步水位与缺洞状态机（乱序/缺洞/重复收敛、退避预算、不形成风暴）
+    add_executable(test_sync_tracker tests/test_sync_tracker.cpp)
+    target_link_libraries(test_sync_tracker PRIVATE client_core)
+    add_test(NAME sync_tracker COMMAND test_sync_tracker)
+    add_executable(test_recovery_resolver tests/test_recovery_resolver.cpp)
+    target_link_libraries(test_recovery_resolver PRIVATE client_core)
+    add_test(NAME recovery_resolver COMMAND test_recovery_resolver)
+
+    # P7-G1：稳定 DTO 与结构化 diff（Legacy/Native 逐字段比较，输出首个字段差异）
+    add_executable(test_golden_diff tests/test_golden_diff.cpp)
+    target_link_libraries(test_golden_diff PRIVATE client_core)
+    add_test(NAME golden_diff COMMAND test_golden_diff)
+
+    # P7-G1：协议 fuzz corpus（截断/尾随/未知字段/错误长度/超大计数/确定性随机）
+    add_executable(test_protocol_fuzz tests/test_protocol_fuzz.cpp)
+    target_link_libraries(test_protocol_fuzz PRIVATE client_core)
+    target_include_directories(test_protocol_fuzz PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/../protocol)
+    add_test(NAME protocol_fuzz COMMAND test_protocol_fuzz)
+
+    # P7-G1：事件契约（dbVersion 单调失效通知 + 有界完成登记表 exactly-once）
+    add_executable(test_event_contract tests/test_event_contract.cpp)
+    target_link_libraries(test_event_contract PRIVATE client_core)
+    add_test(NAME event_contract COMMAND test_event_contract)
+
+    # P7-G1：Golden runner（JSON 唯一真相源 + 逐字段 diff + 首个差异定位）
+    add_executable(test_golden_runner tests/test_golden_runner.cpp)
+    target_link_libraries(test_golden_runner PRIVATE client_core)
+    target_compile_definitions(test_golden_runner PRIVATE
+        CLIENT_CORE_GOLDEN_JSON="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/app-security-v1.json")
+    add_test(NAME golden_runner COMMAND test_golden_runner)
+
     if(CLIENT_CORE_WITH_SQLITE)
         add_executable(test_storage tests/test_storage.cpp)
         target_link_libraries(test_storage PRIVATE client_core)
@@ -143,7 +319,7 @@ if(CLIENT_CORE_BUILD_TESTS)
         OUTPUT ${TEST_TLS_CERT} ${TEST_TLS_KEY}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${TEST_TLS_DIR}
         COMMAND ${OPENSSL_CLI} req -x509 -newkey rsa:2048 -sha256 -nodes
-                -keyout ${TEST_TLS_KEY} -out ${TEST_TLS_CERT} -days 2
+                -keyout ${TEST_TLS_KEY} -out ${TEST_TLS_CERT} -days 365
                 -subj /CN=im.example.com
                 -addext subjectAltName=DNS:im.example.com,DNS:localhost,IP:127.0.0.1
         VERBATIM
@@ -184,7 +360,7 @@ if(CLIENT_CORE_BUILD_TESTS)
         COMMAND ${CMAKE_COMMAND} -E make_directory ${TEST_TLS_DIR}
         # root CA
         COMMAND ${OPENSSL_CLI} req -x509 -newkey rsa:2048 -sha256 -nodes
-                -keyout ${TEST_CHAIN_ROOT_KEY} -out ${TEST_CHAIN_ROOT_CRT} -days 2
+                -keyout ${TEST_CHAIN_ROOT_KEY} -out ${TEST_CHAIN_ROOT_CRT} -days 365
                 -subj /CN=Jitong-Test-Root-CA
         # leaf key + CSR
         COMMAND ${OPENSSL_CLI} req -newkey rsa:2048 -sha256 -nodes
@@ -195,7 +371,7 @@ if(CLIENT_CORE_BUILD_TESTS)
         # 用 root 签发 leaf
         COMMAND ${OPENSSL_CLI} x509 -req -in ${TEST_CHAIN_LEAF_CSR}
                 -CA ${TEST_CHAIN_ROOT_CRT} -CAkey ${TEST_CHAIN_ROOT_KEY}
-                -CAcreateserial -sha256 -days 2
+                -CAcreateserial -sha256 -days 365
                 -extfile ${TEST_CHAIN_EXT} -out ${TEST_CHAIN_LEAF_CRT}
         # fullchain = leaf + root（服务端发送整条链）
         COMMAND ${CMAKE_COMMAND} -E cat ${TEST_CHAIN_LEAF_CRT} ${TEST_CHAIN_ROOT_CRT} > ${TEST_CHAIN_FULL_CRT}
@@ -262,6 +438,93 @@ if(CLIENT_CORE_BUILD_TESTS)
     target_link_libraries(test_account_session PRIVATE client_core)
     target_include_directories(test_account_session PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_test(NAME account_session COMMAND test_account_session)
+
+    # P6-T01：SQLCipher 数据库打开器（仅在开启 SQLCIPHER 时构建）
+    if(CLIENT_CORE_WITH_SQLCIPHER)
+        add_executable(test_cipher_database tests/test_cipher_database.cpp)
+        target_link_libraries(test_cipher_database PRIVATE client_core)
+        add_test(NAME cipher_database COMMAND test_cipher_database)
+
+        add_executable(test_database_paths tests/test_database_paths.cpp)
+        target_link_libraries(test_database_paths PRIVATE client_core)
+        add_test(NAME database_paths COMMAND test_database_paths)
+
+        add_executable(test_schema_migrations tests/test_schema_migrations.cpp)
+        target_link_libraries(test_schema_migrations PRIVATE client_core)
+        add_test(NAME schema_migrations COMMAND test_schema_migrations)
+
+        # P7-G2：Schema v3 状态机实体迁移（0/1/2→3、幂等、新表语义、索引命中）
+        add_executable(test_schema_v3 tests/test_schema_v3.cpp)
+        target_link_libraries(test_schema_v3 PRIVATE client_core)
+        add_test(NAME schema_v3 COMMAND test_schema_v3)
+
+        # P7-G2：Repository 业务级事务（消息/FTS/会话/未读同事务、幂等、outbox 生命周期）
+        add_executable(test_native_repository tests/test_native_repository.cpp)
+        target_link_libraries(test_native_repository PRIVATE client_core)
+        add_test(NAME native_repository COMMAND test_native_repository)
+
+        # P7-G3：ClientRuntime 生命周期与隔离（可重入、并发 destroy 风暴、generation 隔离）
+        add_executable(test_client_runtime tests/test_client_runtime.cpp)
+        target_compile_definitions(test_client_runtime PRIVATE CLIENT_CORE_TEST_HOOKS=1)
+        target_link_libraries(test_client_runtime PRIVATE client_core)
+        add_test(NAME client_runtime COMMAND test_client_runtime)
+        add_executable(test_search_service tests/test_search_service.cpp)
+        target_link_libraries(test_search_service PRIVATE client_core)
+        add_test(NAME search_service COMMAND test_search_service)
+        set_tests_properties(client_runtime PROPERTIES TIMEOUT 30)
+
+        # P7-G4：MessageService 编排（C++ 发号、Outbox/Inbox 合并入口、Ack 合并）
+        add_executable(test_message_service tests/test_message_service.cpp)
+        target_link_libraries(test_message_service PRIVATE client_core)
+        add_test(NAME message_service COMMAND test_message_service)
+
+        # P7-G4：FriendService 编排（好友资料/申请幂等、同意/拒绝、删除、Presence 分离）
+        add_executable(test_friend_service tests/test_friend_service.cpp)
+        target_link_libraries(test_friend_service PRIVATE client_core)
+        add_test(NAME friend_service COMMAND test_friend_service)
+
+        # P7-G4：AiSuggestionService 状态机（single-flight/超时/取消/迟到抑制）
+        add_executable(test_ai_suggestion tests/test_ai_suggestion.cpp)
+        target_link_libraries(test_ai_suggestion PRIVATE client_core)
+        add_test(NAME ai_suggestion COMMAND test_ai_suggestion)
+
+        # P7-G4：SyncService 编排（水位/缺洞/退避 + sync_gaps 影子落库）
+        add_executable(test_sync_service tests/test_sync_service.cpp)
+        target_link_libraries(test_sync_service PRIVATE client_core)
+        add_test(NAME sync_service COMMAND test_sync_service)
+
+        add_executable(test_db_command_queue tests/test_db_command_queue.cpp)
+        target_link_libraries(test_db_command_queue PRIVATE client_core)
+        add_test(NAME db_command_queue COMMAND test_db_command_queue)
+
+        add_executable(test_read_pool tests/test_read_pool.cpp)
+        target_link_libraries(test_read_pool PRIVATE client_core)
+        add_test(NAME read_pool COMMAND test_read_pool)
+
+        add_executable(test_room_import tests/test_room_import.cpp)
+        target_link_libraries(test_room_import PRIVATE client_core)
+        add_test(NAME room_import COMMAND test_room_import)
+
+        # P6-T05：跨进程排他锁（第二进程打开被拒）
+        add_executable(test_process_lock tests/test_process_lock.cpp)
+        target_link_libraries(test_process_lock PRIVATE client_core)
+        add_test(NAME process_lock COMMAND test_process_lock)
+
+        # P6-T05：迁移开关三态 + 清理影子库
+        add_executable(test_migration_switch tests/test_migration_switch.cpp)
+        target_link_libraries(test_migration_switch PRIVATE client_core)
+        add_test(NAME migration_switch COMMAND test_migration_switch)
+
+        # P6-T05：强杀恢复（fork + _exit 模拟非优雅退出，验证 WAL 崩溃恢复）
+        add_executable(test_kill_recovery tests/test_kill_recovery.cpp)
+        target_link_libraries(test_kill_recovery PRIVATE client_core)
+        add_test(NAME kill_recovery COMMAND test_kill_recovery)
+
+        # P6-T05：NativeDatabase 生命周期门禁（F03 超时迟到回调 / F09 close 并发）
+        add_executable(test_native_database_lifecycle tests/test_native_database_lifecycle.cpp)
+        target_link_libraries(test_native_database_lifecycle PRIVATE client_core)
+        add_test(NAME native_database_lifecycle COMMAND test_native_database_lifecycle)
+    endif()
 endif()
 
 # ---------------- im_cli 命令行演示客户端 ----------------

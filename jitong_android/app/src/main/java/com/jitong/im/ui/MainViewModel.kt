@@ -5,7 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jitong.im.data.ChatStore
 import com.jitong.im.data.Prefs
+import com.jitong.im.data.crypto.DbKeyFailure
 import com.jitong.im.data.crypto.DbKeyManager
+import com.jitong.im.data.crypto.DbKeyResult
 import com.jitong.im.data.crypto.TokenVault
 import com.jitong.im.data.db.ConversationEntity
 import com.jitong.im.data.db.MessageEntity
@@ -232,8 +234,21 @@ class MainViewModel : ViewModel() {
         val ctx = appContext ?: error("应用上下文未初始化")
         val passHash = lastHash ?: error("缺少登录密码哈希，无法派生本地库密钥")
         val opened = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val key = DbKeyManager.getOrCreateRealKey(ctx, ownerId, passHash)
-            ChatStore(ctx, ownerId, key)
+            // P6-T02：密钥不可用（密码在别处改过 / blob 损坏 / blob 丢失但库还在）时 fail-close，
+            // 不再自动删库或静默重建——保留密文库供诊断与人工恢复。
+            when (val result = DbKeyManager.getOrCreateRealKey(ctx, ownerId, passHash)) {
+                is DbKeyResult.Success -> ChatStore(ctx, ownerId, result.key)
+                is DbKeyResult.Unavailable -> {
+                    _loginTip.value = when (result.reason) {
+                        DbKeyFailure.UnwrapFailed -> "本地库密钥无法解开：密码可能已在别处修改"
+                        DbKeyFailure.BlobCorrupt -> "本地库密钥文件损坏，暂无法打开本地消息"
+                        DbKeyFailure.DatabaseExistsWithoutKey -> "本地库存在但密钥丢失，暂无法打开本地消息"
+                        DbKeyFailure.NeedsPasswordUnlock -> "需要密码解锁本地消息"
+                        DbKeyFailure.LockedWithData -> "本地库有数据但无法解锁：请重新输入密码"
+                    }
+                    error("本地库密钥不可用：${result.reason}（未删除任何本地数据）")
+                }
+            }
         }
         store = opened
         storeOwnerId = ownerId

@@ -123,6 +123,7 @@ run_suite() {
   info "${label}：配置 ASan + UBSan 构建"
   if ! cmake -S "$source_dir" -B "$build_dir" \
       -DCMAKE_BUILD_TYPE=Debug \
+      -DCLIENT_CORE_WITH_SQLCIPHER=ON \
       "-DCMAKE_CXX_FLAGS=${SAN_FLAGS}" \
       "-DCMAKE_EXE_LINKER_FLAGS=${SAN_FLAGS}"; then
     fail "${label}：Sanitizer 配置失败。"
@@ -155,10 +156,11 @@ if [[ "$RUN_CLIENT" -eq 1 ]]; then
   # secure_channel（四步握手 + 加密帧 + 负向）也必须纳入 ASan/UBSan。
   run_suite 'client_core（协议、存储、回环网络、帧编解码、Transport、安全通道、认证域）' \
     "$ROOT/client_core" "$ROOT/client_core/build-sanitize" \
-    '^(protocol|storage|integration|frame_codec|transport|secure_channel|auth_state_machine|token_manager|device_proof_service|reconnect_policy|auth_request_builder|account_session)$'
+    '^(protocol|storage|integration|frame_codec|transport|secure_channel|auth_state_machine|token_manager|device_proof_service|reconnect_policy|auth_request_builder|account_session|cipher_database|database_paths|schema_migrations|db_command_queue|read_pool|room_import|process_lock|migration_switch|kill_recovery|native_database_lifecycle|testing_fakes|golden_diff|protocol_fuzz|event_contract|golden_runner|schema_v3|native_repository|client_runtime|sync_tracker)$'
   run_macos_leaks 'client_core' "$ROOT/client_core" "$ROOT/client_core/build-leaks" \
     test_protocol test_storage test_integration test_frame_codec test_transport test_secure_channel \
-    test_auth_state_machine test_token_manager test_device_proof_service test_reconnect_policy test_auth_request_builder
+    test_auth_state_machine test_token_manager test_device_proof_service test_reconnect_policy test_auth_request_builder \
+    test_testing_fakes test_golden_diff test_event_contract test_golden_runner
 fi
 
 if [[ "$RUN_SERVER" -eq 1 ]]; then

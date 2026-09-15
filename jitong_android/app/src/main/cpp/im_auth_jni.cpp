@@ -68,7 +68,22 @@ Java_com_jitong_im_core_NativeBindings_nativeAccountSetup(JNIEnv* env, jclass, j
     h->authTransport->setSession(h->account);
 
     auto obs = observer;
-    h->account->setEventSink([obs](const im::account::AccountEvent& e) { obs->emit(e); });
+    std::weak_ptr<jt::NativeSdkHandle> weakHandle=h;
+    h->account->setEventSink([obs,weakHandle](const im::account::AccountEvent& e) {
+        // 业务发送资格由账号状态机给出，不能只以 Socket/TLS 已连接为准。
+        // 弱持有 handle，避免 AccountSession -> sink -> handle 的引用环。
+        if(auto handle=weakHandle.lock()){
+            std::shared_ptr<im::runtime::ClientRuntime> runtime;
+            {
+                std::lock_guard<std::mutex> lk(handle->mutex);
+                if(!handle->isDestroying())runtime=handle->runtime;
+            }
+            if(runtime)runtime->setAccountAuthenticated(
+                e.accountState==im::account::AccountState::Authenticated&&
+                e.connectionState==im::account::ConnectionState::Connected);
+        }
+        obs->emit(e);
+    });
     h->accountObserver = observer; // 持有，随句柄销毁释放
     return JNI_TRUE;
 }

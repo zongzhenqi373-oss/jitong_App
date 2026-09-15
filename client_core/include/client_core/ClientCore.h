@@ -83,6 +83,27 @@ public:
     virtual void onConnectionClosed() = 0;
 };
 
+/** ClientCore 解码后的完整消息协议事件；Native MessageService 的唯一网络入口。 */
+struct ChatProtocolMessage {
+    std::int64_t fromId=0, toId=0, serverTime=0, conversationSeq=0, fileSize=0;
+    std::int32_t type=0, imageWidth=0, imageHeight=0;
+    std::string msgId, content, fileName, fileId, contentType, sha256;
+    std::string thumbnailFileId, thumbnailSha256, largeThumbnailFileId, largeThumbnailSha256;
+    std::int32_t thumbnailWidth=0, thumbnailHeight=0, largeThumbnailWidth=0, largeThumbnailHeight=0;
+    std::int64_t thumbnailSize=0, largeThumbnailSize=0;
+};
+struct ChatProtocolAck { std::int64_t peerId=0, conversationSeq=0; int result=0; std::string msgId; };
+class IMessageProtocolSink {
+public:
+    virtual ~IMessageProtocolSink()=default;
+    virtual void onIncomingChat(const ChatProtocolMessage& message)=0;
+    virtual void onChatAck(const ChatProtocolAck& ack)=0;
+    virtual void onRoamConversations(const std::vector<ChatProtocolMessage>& messages)=0;
+    virtual void onRoamMessages(std::int64_t peerId,
+                                const std::vector<ChatProtocolMessage>& messages,
+                                bool hasMore,std::int64_t minSeq)=0;
+};
+
 // UI 事件回调接口（由 UI 层实现）
 class IClientEvents {
 public:
@@ -174,6 +195,8 @@ public:
     // P5-T06：注入认证协议 sink（非拥有指针）。设置后 TokenLoginRs/RefreshTokenRs/
     // LogoutRs/被踢/握手完成/断开会额外回调它，供 AccountSession 的生产适配器编排认证。
     void setAuthProtocolSink(IAuthProtocolSink* sink);
+    /** 注入完整消息协议 sink；回调来自网络 IO 线程，非拥有指针。 */
+    void setMessageProtocolSink(const std::shared_ptr<IMessageProtocolSink>& sink);
 
     // P5-T06：发送一个已构造好的认证请求 payload（TokenLoginRq/RefreshTokenRq/LogoutRq）。
     // 走与业务帧相同的加密发送路径（安全通道建立后自动加密）。
@@ -204,6 +227,8 @@ public:
     void sendRegister(const std::string& nickUtf8, const std::string& tel, const std::string& pass);
     void sendLogin(const std::string& tel, const std::string& pass);
     void sendChatMessage(int friId, const std::string& msgUtf8);
+    /** 发送 Outbox 中已持久化的 ChatInfoRq protobuf；校验身份/类型后才入安全通道。 */
+    bool sendChatPayload(const std::string& payload);
     void sendAddFriendRequest(const std::string& friNickUtf8);
     // 回复添加好友请求：agree=true 同意，false 拒绝；destId/destNick 为请求发起人
     void answerAddFriend(int destId, const std::string& destNickUtf8, bool agree);
@@ -323,6 +348,9 @@ private:
     std::atomic<IStorage*> m_storage{nullptr};
     // P5-T06：认证协议 sink（AccountSession 生产适配器）。非拥有指针。
     std::atomic<IAuthProtocolSink*> m_authSink{nullptr};
+    std::shared_ptr<IMessageProtocolSink> acquireMessageProtocolSink() const;
+    mutable std::mutex m_messageSinkMutex;
+    std::weak_ptr<IMessageProtocolSink> m_messageSink;
     std::unique_ptr<TcpTransport> m_transport;
 
     // 会话状态（登录成功后填充）

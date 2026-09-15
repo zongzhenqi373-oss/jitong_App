@@ -107,8 +107,10 @@ abstract class AppDatabase : RoomDatabase() {
                 .openHelperFactory(SupportOpenHelperFactory(key.copyOf()))
                 .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                     MIGRATION_6_7, MIGRATION_7_8)
-                // 演示项目：非预期升级路径仍直接重建本地库（消息可从服务端漫游/补发恢复）
-                .fallbackToDestructiveMigration()
+                // P6-T02：去掉 .fallbackToDestructiveMigration()。
+                // 破坏性迁移会静默清空用户本地聊天记录；升级路径已由上面的显式 MIGRATION_*
+                // 覆盖，未覆盖的路径应**报错**而不是重建。密钥不可用/库打不开时保留密文文件
+                // 供诊断与人工恢复（由 DbKeyManager.clearLocalDatabase 显式清除）。
                 .build()
             instance = db
             instanceOwnerId = ownerId

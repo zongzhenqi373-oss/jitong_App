@@ -134,6 +134,10 @@ ClientCore::~ClientCore()
 void ClientCore::setEventSink(IClientEvents* events) { m_events.store(events); }
 void ClientCore::setStorage(IStorage* storage) { m_storage.store(storage); }
 void ClientCore::setAuthProtocolSink(IAuthProtocolSink* sink) { m_authSink.store(sink); }
+void ClientCore::setMessageProtocolSink(const std::shared_ptr<IMessageProtocolSink>& sink)
+{ std::lock_guard<std::mutex> lk(m_messageSinkMutex); m_messageSink=sink; }
+std::shared_ptr<IMessageProtocolSink> ClientCore::acquireMessageProtocolSink() const
+{ std::lock_guard<std::mutex> lk(m_messageSinkMutex); return m_messageSink.lock(); }
 
 void ClientCore::sendAuthRaw(protType type, const std::string& payload)
 {
@@ -456,6 +460,16 @@ void ClientCore::sendChatMessage(int friId, const std::string& msgUtf8)
                                 static_cast<std::int64_t>(std::time(nullptr)));
         }
     }
+}
+
+bool ClientCore::sendChatPayload(const std::string& payload)
+{
+    im::proto::ChatInfoRq rq;
+    if (!rq.ParseFromString(payload) || rq.msg_id().empty() || rq.myid()<=0 || rq.friid()<=0 ||
+        rq.myid()!=m_myId || (rq.type()!=im::proto::TEXT && rq.type()!=im::proto::IMAGE &&
+                              rq.type()!=im::proto::FILE) || !isConnected()) return false;
+    sendPacket(DEF_PROT_CHAT_INFO_RQ,payload);
+    return true;
 }
 
 void ClientCore::sendAddFriendRequest(const std::string& friNickUtf8)
@@ -795,10 +809,29 @@ void ClientCore::onFriendInfoPkt(const char* data, std::size_t len)
     }
 }
 
+static ChatProtocolMessage toProtocolMessage(const im::proto::ChatInfoRq& rq)
+{
+    ChatProtocolMessage m;
+    m.fromId=rq.myid(); m.toId=rq.friid(); m.serverTime=rq.ts(); m.conversationSeq=rq.seq();
+    m.type=rq.type(); m.msgId=rq.msg_id(); m.content=rq.msg(); m.imageWidth=rq.image_width();
+    m.imageHeight=rq.image_height(); m.fileName=rq.file_name(); m.fileSize=rq.file_size();
+    m.fileId=rq.file_id(); m.contentType=rq.content_type(); m.sha256=rq.sha256();
+    m.thumbnailFileId=rq.thumbnail_file_id(); m.thumbnailWidth=rq.thumbnail_width();
+    m.thumbnailHeight=rq.thumbnail_height(); m.thumbnailSize=rq.thumbnail_size();
+    m.thumbnailSha256=rq.thumbnail_sha256(); m.largeThumbnailFileId=rq.large_thumbnail_file_id();
+    m.largeThumbnailWidth=rq.large_thumbnail_width(); m.largeThumbnailHeight=rq.large_thumbnail_height();
+    m.largeThumbnailSize=rq.large_thumbnail_size(); m.largeThumbnailSha256=rq.large_thumbnail_sha256();
+    return m;
+}
+
 void ClientCore::onChatInfoRq(const char* data, std::size_t len)
 {
     im::proto::ChatInfoRq rq;
     if (!parsePayload(data, len, rq)) return;
+
+    if (auto sink=acquireMessageProtocolSink()) {
+        sink->onIncomingChat(toProtocolMessage(rq));
+    }
 
     // 文件/图片卡片统一回调（rq.myid 是发送方）：字节不再随包下发，UI 按需 downloadMedia()
     if (rq.type() == im::proto::FILE || rq.type() == im::proto::IMAGE) {
@@ -824,6 +857,10 @@ void ClientCore::onChatInfoRs(const char* data, std::size_t len)
 {
     im::proto::ChatInfoRs rs;
     if (!parsePayload(data, len, rs)) return;
+    if (auto sink=acquireMessageProtocolSink()) {
+        ChatProtocolAck ack; ack.peerId=rs.myid(); ack.result=rs.result();
+        ack.msgId=rs.msg_id(); ack.conversationSeq=rs.seq(); sink->onChatAck(ack);
+    }
     // 回复中 myid 是消息接收方（朋友），friid 是自己
     if (auto* ev = m_events.load()) ev->onChatSendResult(rs.myid(), rs.result());
 }
@@ -876,6 +913,11 @@ void ClientCore::onRoamConvRs(const char* data, std::size_t len)
     std::vector<RoamMessage> convs;
     convs.reserve(rs.convs_size());
     for (const auto& c : rs.convs()) convs.push_back(toRoamMessage(c));
+    if(auto sink=acquireMessageProtocolSink()){
+        std::vector<ChatProtocolMessage> messages; messages.reserve(rs.convs_size());
+        for(const auto& c:rs.convs())messages.push_back(toProtocolMessage(c));
+        sink->onRoamConversations(messages);
+    }
     if (auto* ev = m_events.load()) ev->onRoamConversations(convs);
 }
 
@@ -886,6 +928,11 @@ void ClientCore::onRoamMsgRs(const char* data, std::size_t len)
     std::vector<RoamMessage> msgs;
     msgs.reserve(rs.msgs_size());
     for (const auto& c : rs.msgs()) msgs.push_back(toRoamMessage(c));
+    if(auto sink=acquireMessageProtocolSink()){
+        std::vector<ChatProtocolMessage> messages; messages.reserve(rs.msgs_size());
+        for(const auto& c:rs.msgs())messages.push_back(toProtocolMessage(c));
+        sink->onRoamMessages(rs.peer_id(),messages,rs.has_more(),rs.min_seq());
+    }
     if (auto* ev = m_events.load()) {
         ev->onRoamMessages(rs.peer_id(), msgs, rs.has_more(), rs.min_seq());
     }
