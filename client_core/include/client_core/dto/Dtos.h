@@ -313,6 +313,56 @@ struct MediaTaskDto {
     }
 };
 
+// ---------------------------------------------------------------- 分片上传草稿
+
+/** 上传草稿状态机。 */
+enum class UploadDraftState : std::int32_t {
+    Pending = 0,    // 待传（已登记元数据，未建服务端会话）
+    Uploading = 1,  // 会话已建，分片进行中
+    Finalized = 2,  // 已得 file_id，消息卡片尚未入 Outbox
+    Sent = 3,       // 消息已入 Outbox（ACK 由 Outbox 状态机负责）
+    Cancelled = 4,  // 用户主动取消：终态，不自动恢复
+    Failed = 5,     // 可恢复失败（断网/5xx）：重启后 resume
+};
+
+/**
+ * 分片上传草稿：断点续传的本地事实源。
+ * 图片的原图/大图/小图各占一行（variant 独立状态），共享同一 msgId。
+ */
+struct UploadDraftDto {
+    static constexpr int kVersion = 1;
+
+    std::string msgId;              // 固定消息 ID（重试/恢复不重新生成）
+    MediaVariant variant = MediaVariant::Origin;
+    std::int64_t conversationId = 0;
+    std::int64_t peerId = 0;
+    std::string localPath;
+    std::string fileName;
+    std::int64_t fileSize = 0;
+    std::string sha256;
+    std::string contentType;
+    std::int32_t imageWidth = 0;
+    std::int32_t imageHeight = 0;
+    std::string uploadId;           // 空 = 尚未创建服务端会话
+    std::int64_t chunkSize = 0;
+    std::int32_t chunkCount = 0;
+    std::vector<std::int32_t> chunksDone; // 已确认完成的分片号（升序）
+    std::string fileId;             // finalize 后回填
+    UploadDraftState state = UploadDraftState::Pending;
+    std::int32_t errorCode = 0;
+    std::int64_t createdAt = 0;
+    std::int64_t updatedAt = 0;
+
+    bool isTerminal() const {
+        return state == UploadDraftState::Sent || state == UploadDraftState::Cancelled;
+    }
+    /** 重启后需要恢复的活跃状态（Sent/Cancelled 之外）。 */
+    bool isActive() const {
+        return state == UploadDraftState::Pending || state == UploadDraftState::Uploading ||
+               state == UploadDraftState::Finalized || state == UploadDraftState::Failed;
+    }
+};
+
 // ---------------------------------------------------------------- AI 建议
 
 struct AiSuggestionDto {

@@ -103,12 +103,39 @@ object NativeBindings {
     /** 登出：停止并递增 generation，使在途旧 generation 事件失效。 */
     external fun nativeLogoutRuntime(handle: Long)
 
+    /** 销毁并摘除 Runtime，但保留同一句柄上的账号会话，允许登出后换账号。 */
+    external fun nativeDestroyRuntime(handle: Long)
+
     /** Runtime 状态名：Idle/Starting/Running/Stopping/Stopped/Destroyed。 */
     external fun nativeGetRuntimeState(handle: Long): String
     external fun nativeRuntimeSendText(
         handle: Long, conversationId: Long, peerId: Long, text: String,
         pinyin: String, initials: String,
     ): String
+    external fun nativeBeginMediaOperation(handle:Long):Long
+    external fun nativeCancelMediaOperation(handle:Long,operation:Long)
+    external fun nativeEndMediaOperation(handle:Long,operation:Long)
+    external fun nativeRuntimeUploadMedia(handle:Long,operation:Long,path:String,receiverId:Long,isImage:Boolean):String
+    external fun nativeRuntimeDownloadMedia(handle:Long,operation:Long,fileId:String,destination:String):Boolean
+
+    // ---------------- 分片上传（断点续传） ----------------
+    /** 登记上传草稿（幂等，同 msgId+variant 保留进度）。返回 "ok" 或 "err|..."。 */
+    external fun nativeMediaEnqueueUpload(handle:Long,msgId:String,conversationId:Long,peerId:Long,
+        variant:Int,localPath:String,fileName:String,contentType:String,
+        imageWidth:Int,imageHeight:Int):String
+    /** 推进该消息上传直到 Sent/Failed（阻塞，含网络 IO；成功后唤醒 Outbox 发卡片）。 */
+    external fun nativeMediaPumpUpload(handle:Long,msgId:String):String
+    /** 启动/网络恢复扫描：恢复全部活跃草稿，返回推进到终态的消息数（阻塞）。 */
+    external fun nativeMediaResumeUploads(handle:Long):Int
+    /** 用户主动取消（终态，不自动恢复；与网络异常严格区分）。 */
+    external fun nativeMediaCancelUpload(handle:Long,msgId:String):Boolean
+    /** 上传进度查询："minState,doneChunks,totalChunks,originFileId"；无草稿返回空串。 */
+    external fun nativeMediaUploadState(handle:Long,msgId:String):String
+    external fun nativeRuntimeSendMedia(handle:Long,conversationId:Long,peerId:Long,type:Int,
+        fileId:String,fileName:String,fileSize:Long,contentType:String,sha256:String,width:Int,height:Int,
+        localPath:String,thumbnailFileId:String,thumbnailSize:Long,thumbnailSha256:String,
+        thumbnailWidth:Int,thumbnailHeight:Int,largeThumbnailFileId:String,largeThumbnailSize:Long,
+        largeThumbnailSha256:String,largeThumbnailWidth:Int,largeThumbnailHeight:Int):String
     external fun nativeRuntimeMarkRead(handle:Long,conversationId:Long,readSeq:Long):String
     external fun nativeRuntimeFlushOutbox(handle: Long, nowSeconds: Long, limit: Int): Int
     external fun nativeRuntimeConsumeInvalidation(handle: Long, domain: Int): Long
@@ -117,6 +144,14 @@ object NativeBindings {
     external fun nativeRuntimeRequestRoamMessages(
         handle: Long, peerId: Long, beforeSeq: Long, limit: Int,
     ): Boolean
+    external fun nativeRuntimeLoadFriends(handle: Long): ByteArray?
+    external fun nativeRuntimeLoadFriendRequests(handle: Long): ByteArray?
+    external fun nativeRuntimeRequestFriendRequests(handle: Long): Boolean
+    external fun nativeRuntimeSendAddFriend(handle: Long, nick: String): Boolean
+    external fun nativeRuntimeAnswerFriend(
+        handle: Long, requesterId: Long, requesterNick: String, agree: Boolean,
+    ): Boolean
+    external fun nativeRuntimeDeleteFriend(handle: Long, friendId: Long): Boolean
 
     /** 当前存活句柄数，用于压力测试断言无泄漏。 */
     external fun nativeHandleCount(): Int
@@ -196,6 +231,13 @@ object NativeBindings {
     /** 密码登录（首次/换账号）。返回 operationId（0 表示被拒/无会话）。 */
     external fun nativeAccountLoginWithPassword(handle: Long, account: String, password: String): Long
 
+    /**
+     * 一次性注册（先于认证，不进入 AccountSession 会话生命周期）。
+     * 仅在账号空闲时可发起；结果经 [NativeEventSink.onRegisterResult] 异步上抛，
+     * 本地连接不可用上报 result=0（非协议结果码）。
+     */
+    external fun nativeAccountRegister(handle: Long, nick: String, tel: String, pass: String): Boolean
+
     /** 冷启动自动登录：有未过期凭据则 Token 登录，否则返回 0（需密码登录）。 */
     external fun nativeAccountStartWithSavedToken(handle: Long, account: String): Long
 
@@ -256,6 +298,47 @@ object NativeBindings {
     external fun nativeSubmitConversationBatch(handle: Long, batch: ByteArray,
                                                checkpoint: String): String
 
+    /** Room v10 delta：数据修改与 legacy_delta checkpoint 在 Native Writer 同一事务提交。 */
+    external fun nativeSubmitLegacyDeltaBatch(
+        handle: Long, epoch: Long, expectedAfter: Long, batch: ByteArray,
+    ): String
+    /** 冷启动恢复用：返回 ok|checkpoint=N。 */
+    external fun nativeGetLegacyDeltaCheckpoint(handle: Long, epoch: Long): String
+    /** snapshot 前首次建立 delta baseline；返回 ok|checkpoint=N。 */
+    external fun nativeSeedLegacyDeltaCheckpoint(
+        handle: Long, epoch: Long, baseline: Long, updatedAt: Long,
+    ): String
+
+    /** 查询 Native DB 最新 cutover journal。 */
+    external fun nativeGetCutoverJournal(handle: Long): String
+
+    /**
+     * cutover DIRTY 镜像写入委托，由 Application 在 onCreate 注入。
+     * Native transaction hook 在首次业务事务中原子推进 DIRTY 后回调；
+     * 写入失败/进程被杀导致镜像滞后时，冷启动双证据校验 fail-close 为 Repair，绝不回退 Room。
+     */
+    @Volatile
+    var cutoverDirtyHandler: ((CutoverMirrorStore.Evidence) -> Unit)? = null
+
+    /** JNI 回调入口（可能发生在任意 native 线程，禁止在此做阻塞/UI 操作）。 */
+    @JvmStatic
+    fun onCutoverDirtyFromNative(
+        ownerId: Long, epoch: Long, state: Int, highWater: Long, schemaVersion: Int,
+        keyId: String, summary: String, updatedAt: Long,
+    ) {
+        val evidence = CutoverMirrorStore.Evidence(
+            ownerId, epoch, state, highWater, schemaVersion, keyId, summary, updatedAt,
+        )
+        runCatching { cutoverDirtyHandler?.invoke(evidence) }
+    }
+
+    /** 严格单向推进 cutover；expectedState=-1 仅允许创建 LEGACY_ACTIVE。 */
+    external fun nativeAdvanceCutoverJournal(
+        handle: Long, epoch: Long, expectedState: Int, targetState: Int,
+        highWater: Long, schemaVersion: Int, keyId: String, summary: String, updatedAt: Long,
+    ): String
+
+
     /** 全量对账并写完成标记；对账不一致返回 err|VerifyFailed|... 且不写标记。 */
     external fun nativeFinishMigration(handle: Long, expectedMessages: Long,
                                        expectedConversations: Long, expectedMinSeq: Long,
@@ -288,4 +371,9 @@ object NativeBindings {
     ): ByteArray?
     /** 读取账号会话快照；返回 JTCL v1 二进制。 */
     external fun nativeLoadConversations(handle: Long): ByteArray?
+    external fun nativeBeginDownloadTask(handle:Long,taskId:String,msgId:String,fileId:String,
+                                         localPath:String,generation:Long):Boolean
+    external fun nativeFinishDownloadTask(handle:Long,taskId:String,generation:Long,
+                                          state:Int,transferred:Long):Boolean
+    external fun nativeListRecoverableDownloads(handle:Long):ByteArray?
 }

@@ -77,3 +77,33 @@ data class ConversationEntity(
     val lastTs: Long,
     val unread: Int,
 )
+
+/**
+ * Legacy Room 在线迁移变更流。这里只保存权威表的定位信息，不复制大字段；导出 delta 时按 key
+ * 回读当前行，DELETE 使用 tombstone。数据库触发器负责写入，避免旧 writer 绕过 Kotlin gateway。
+ */
+@Entity(
+    tableName = "legacy_change_log",
+    indices = [Index(value = ["ownerId", "changeSeq"])],
+)
+data class LegacyChangeLogEntity(
+    @PrimaryKey(autoGenerate = true) val changeSeq: Long = 0,
+    val ownerId: Int,
+    val entityType: String,
+    val entityKey: String,
+    val operation: String,
+    val changedAt: Long,
+    /** v10：触发器固化的权威行快照版本；DELETE tombstone 为 0。 */
+    val payloadVersion: Int = 0,
+    /** v10：UPSERT 时的 JSON 快照；DELETE 为空，禁止导出时回读当前表。 */
+    val payload: String = "",
+)
+
+/** state: 0=Legacy 可写，1=cutover 最终停写；按 owner 持久化，进程重启后仍生效。 */
+@Entity(tableName = "legacy_cutover_control")
+data class LegacyCutoverControlEntity(
+    @PrimaryKey val ownerId: Int,
+    val epoch: Long,
+    val state: Int,
+    val updatedAt: Long,
+)

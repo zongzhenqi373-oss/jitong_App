@@ -4,6 +4,8 @@ import android.R
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jitong.im.data.ChatStore
+import com.jitong.im.data.ColdStartCutoverRequest
+import com.jitong.im.data.CutoverTaskDrain
 import com.jitong.im.data.Prefs
 import com.jitong.im.data.crypto.DbKeyFailure
 import com.jitong.im.data.crypto.DbKeyManager
@@ -14,7 +16,7 @@ import com.jitong.im.data.db.MessageEntity
 import com.jitong.im.net.ImClient
 import com.jitong.im.net.HttpMediaClient
 import com.jitong.im.net.Protocol
-import com.jitong.im.net.sha256Hex
+import com.jitong.im.util.sha256Hex
 import com.jitong.im.util.ImageCodec
 import im.proto.Im
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -22,10 +24,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
-enum class Screen { Login, FriendList, Chat, ChatSearch }
+enum class Screen { Login, FriendList, Chat, ChatSearch, Cutover }
 
 data class Friend(
     val id: Int,
@@ -92,6 +99,10 @@ class MainViewModel : ViewModel() {
 
     private val _screen = MutableStateFlow(Screen.Login)
     val screen: StateFlow<Screen> = _screen
+    private val _cutoverStatus = MutableStateFlow("正在检查旧客户端任务…")
+    val cutoverStatus: StateFlow<String> = _cutoverStatus
+    private var cutoverPreparing = false
+    private var eventCollectorJob: Job? = null
 
     private val _loginTip = MutableStateFlow("")
     val loginTip: StateFlow<String> = _loginTip
@@ -221,7 +232,76 @@ class MainViewModel : ViewModel() {
     private val roamLoading = mutableSetOf<Int>()
 
     init {
-        viewModelScope.launch { collectEvents() }
+        eventCollectorJob = viewModelScope.launch { collectEvents() }
+    }
+
+    /** 用户明确触发后才预约冷启动迁移。失败时不写预约，重启仍走旧后端。 */
+    fun prepareColdStartCutover(restart: () -> Unit) {
+        if (cutoverPreparing) return
+        val owner = myId
+        val ctx = appContext
+        if (owner <= 0 || ctx == null || storeOwnerId != owner || store == null ||
+            Prefs.loadTokenSession()?.userId != owner) {
+            notify("请先完成登录并打开本地消息库")
+            return
+        }
+        if (uploads.isNotEmpty() || downloads.isNotEmpty()) {
+            notify("请等待文件上传或下载完成后再切换")
+            return
+        }
+        if (_messages.value.values.flatten().any { it.fromMe && it.status == ChatMessage.Status.SENDING }) {
+            notify("还有待服务器确认的发送消息，请处理后再切换")
+            return
+        }
+        cutoverPreparing = true
+        _screen.value = Screen.Cutover
+        viewModelScope.launch {
+          try {
+            expectDisconnect = true
+            reconnectJob?.cancelAndJoin()
+            reconnectJob = null
+            aiTimeoutJob?.cancelAndJoin()
+            aiTimeoutJob = null
+            conversationSearchJob?.cancelAndJoin()
+            conversationSearchJob = null
+            val networkQuiet = client.freezeNetworkForCutover()
+            eventCollectorJob?.cancelAndJoin()
+            eventCollectorJob = null
+            if (!networkQuiet) {
+                _cutoverStatus.value = "旧网络未静默。未预约切换，请重启应用后重试。"
+                return@launch
+            }
+            // 旧事件收集器已停，旧 UI 已切走；等待此前派生的写入/媒体任务全部结束。
+            val current = currentCoroutineContext()[Job]
+            val parent = viewModelScope.coroutineContext[Job]
+            val drained = CutoverTaskDrain.awaitIdle(parent, current, 20_000) {
+                uploads.isNotEmpty() || downloads.isNotEmpty()
+            }
+            if (!drained) {
+                _cutoverStatus.value = "旧任务未能排空。未预约切换，请重启应用后重试。"
+                return@launch
+            }
+            if (_messages.value.values.flatten().any {
+                    it.fromMe && it.status == ChatMessage.Status.SENDING
+                }) {
+                _cutoverStatus.value = "仍有待确认消息。未预约切换，请重启应用后处理。"
+                return@launch
+            }
+            // 只有全部子任务完成后才关闭 Room；预约写入必须晚于所有旧写入。
+            store?.close()
+            store = null
+            storeOwnerId = null
+            val error = withContext(Dispatchers.IO) { ColdStartCutoverRequest.schedule(ctx, owner) }
+            if (error != null) {
+                _cutoverStatus.value = "未预约切换：$error。请重启应用后重试。"
+                return@launch
+            }
+            _cutoverStatus.value = "旧任务已排空，正在冷启动迁移…"
+            restart()
+          } catch (t: Throwable) {
+            _cutoverStatus.value = "准备切换失败：${t.message ?: t.javaClass.simpleName}。请重启应用后重试。"
+          }
+        }
     }
 
     /**
@@ -261,6 +341,7 @@ class MainViewModel : ViewModel() {
     // ---------------- 登录 / 注册 ----------------
 
     fun login(tel: String, pass: String, remember: Boolean) {
+        if (cutoverPreparing) return
         val normalizedTel = tel.trim()
         val validationError = validateCredentials(normalizedTel, pass)
         if (validationError != null) {
@@ -290,6 +371,7 @@ class MainViewModel : ViewModel() {
     }
 
     fun register(nick: String, tel: String, pass: String) {
+        if (cutoverPreparing) return
         val normalizedNick = nick.trim()
         val normalizedTel = tel.trim()
         if (normalizedNick.isEmpty()) {
@@ -330,6 +412,7 @@ class MainViewModel : ViewModel() {
     // ---------------- 导航 ----------------
 
     fun openChat(friend: Friend) {
+        if (cutoverPreparing) return
         clearAiReply(cancelRemote = true)
         clearConversationSearch()
         _chatJumpTarget.value = null
@@ -360,14 +443,17 @@ class MainViewModel : ViewModel() {
 
     /** 添加好友 */
     fun sendAddFriendRequest(friNick: String) {
+        if (cutoverPreparing) return
         viewModelScope.launch { client.sendAddFriendRq(myNick.value, friNick) }
     }
 
     fun loadFriendRequests() {
+        if (cutoverPreparing) return
         viewModelScope.launch { client.requestFriendRequests() }
     }
 
     fun respondFriendRequest(request: ImClient.Event.FriendRequestItem, result: Int) {
+        if (cutoverPreparing) return
         if (request.targetId != client.myId) return
         viewModelScope.launch {
             client.sendAddFriendRs(request.requesterId, request.requesterNick, myNick.value, result)
@@ -379,6 +465,7 @@ class MainViewModel : ViewModel() {
 
     /** 删除当前聊天对象；最终是否删除成功以服务端回执为准。 */
     fun deleteCurrentFriend() {
+        if (cutoverPreparing) return
         val friendId = _chatPeer.value?.id ?: return
         pendingDeleteFriendId = friendId
         viewModelScope.launch {
@@ -393,6 +480,7 @@ class MainViewModel : ViewModel() {
 
     /** 上拉加载更早历史：hasMore 且未在加载时才发请求（防抖，修复 6） */
     fun loadMoreHistory(peerId: Int) {
+        if (cutoverPreparing) return
         if (roamHasMore[peerId] == false) return       // 已到头
         if (peerId in roamLoading) return               // 正在加载，避免并发游标错乱
         val cursor = loadedMinSeq[peerId] ?: return     // 尚无首页则不上拉（首页由 openChat 触发）
@@ -407,6 +495,7 @@ class MainViewModel : ViewModel() {
     }
 
     fun backToFriends() {
+        if (cutoverPreparing) return
         clearAiReply(cancelRemote = true)
         clearConversationSearch()
         _chatJumpTarget.value = null
@@ -414,17 +503,20 @@ class MainViewModel : ViewModel() {
     }
 
     fun openChatSearch() {
+        if (cutoverPreparing) return
         if (_chatPeer.value == null) return
         clearConversationSearch()
         _screen.value = Screen.ChatSearch
     }
 
     fun backToChat() {
+        if (cutoverPreparing) return
         clearConversationSearch()
         _screen.value = Screen.Chat
     }
 
     fun returnToChatAt(msgId: String) {
+        if (cutoverPreparing) return
         clearConversationSearch()
         _chatJumpTarget.value = msgId
         _screen.value = Screen.Chat
@@ -435,6 +527,7 @@ class MainViewModel : ViewModel() {
     }
 
     fun logout() {
+        if (cutoverPreparing) return
         expectDisconnect = true
         Prefs.clearCredentialsIfNotRemember()
         val tokenSession = Prefs.loadTokenSession()
@@ -451,6 +544,7 @@ class MainViewModel : ViewModel() {
     // ---------------- 聊天 ----------------
 
     fun requestAiReply(tone: String = lastAiTone) {
+        if (cutoverPreparing) return
         val peer = _chatPeer.value ?: return
         if (!client.connected) {
             _aiReplyState.value = AiReplyUiState.Error("连接已断开，请稍后重试")
@@ -485,15 +579,18 @@ class MainViewModel : ViewModel() {
     }
 
     fun retryAiReply() {
+        if (cutoverPreparing) return
         if (_aiReplyState.value is AiReplyUiState.Loading) return
         requestAiReply(lastAiTone)
     }
 
     fun cancelAiReply() {
+        if (cutoverPreparing) return
         clearAiReply(cancelRemote = true)
     }
 
     fun dismissAiReplies() {
+        if (cutoverPreparing) return
         clearAiReply(cancelRemote = false)
     }
 
@@ -508,6 +605,7 @@ class MainViewModel : ViewModel() {
     }
 
     fun send(text: String) {
+        if (cutoverPreparing) return
         val peer = _chatPeer.value ?: return
         if (text.isBlank()) return
         val msgId = UUID.randomUUID().toString()
@@ -520,6 +618,7 @@ class MainViewModel : ViewModel() {
     /** 发送图片（压缩已由调用方完成），本地即时上屏 + 等待回执 */
     fun sendImage(bytes: ByteArray, w: Int, h: Int, thumbnail: ByteArray, thumbW: Int, thumbH: Int,
                   largeThumbnail: ByteArray, largeThumbW: Int, largeThumbH: Int) {
+        if (cutoverPreparing) return
         val peer = _chatPeer.value ?: return
         if (bytes.isEmpty()) return
         val msgId = UUID.randomUUID().toString()
@@ -554,6 +653,7 @@ class MainViewModel : ViewModel() {
 
     /** 聊天记录搜索（FTS 前缀 + LIKE 子串） */
     fun search(kw: String) {
+        if (cutoverPreparing) return
         if (kw.isBlank()) {
             _searchResults.value = emptyList()
             return
@@ -566,6 +666,7 @@ class MainViewModel : ViewModel() {
 
     /** 只搜索当前聊天；取消上一次任务，避免快速输入时旧查询覆盖新结果。 */
     fun searchCurrentConversation(kw: String) {
+        if (cutoverPreparing) return
         conversationSearchJob?.cancel()
         _conversationSearchResults.value = emptyList()
         val peerId = _chatPeer.value?.id
@@ -610,6 +711,7 @@ class MainViewModel : ViewModel() {
     fun attachContext(ctx: android.content.Context) { appContext = ctx.applicationContext }
 
     fun sendFile(uri: android.net.Uri, resolver: android.content.ContentResolver) {
+        if (cutoverPreparing) return
         val peer = _chatPeer.value ?: return
         val (name, size) = queryNameSize(resolver, uri) ?: return
         if (size <= 0) { notify("空文件无法发送"); return }
@@ -629,6 +731,7 @@ class MainViewModel : ViewModel() {
 
     /** 失败文件卡片重试：复用原 msgId，服务端据此从已有 .part 水位继续。 */
     fun retryFile(msg: ChatMessage) {
+        if (cutoverPreparing) return
         if (!msg.fromMe || msg.kind != MsgKind.FILE ||
             msg.status != ChatMessage.Status.FAILED) return
         val resolver = appResolver ?: run { notify("文件读取器未初始化"); return }
@@ -787,6 +890,7 @@ class MainViewModel : ViewModel() {
 
     /** 仅供聊天可视区调用：幂等预取大缩略图，不会下载原图。 */
     fun prefetchLargeThumbnail(msg: ChatMessage) {
+        if (cutoverPreparing) return
         val ctx = appContext ?: return
         if (msg.kind != MsgKind.IMAGE || msg.largeThumbnailFileId.isBlank() ||
             msg.largeThumbnailPath?.let { java.io.File(it).isFile } == true) return
@@ -811,6 +915,7 @@ class MainViewModel : ViewModel() {
 
     /** 用户点击下载：从本地已有的 .part 大小推算续传起点，向服务端请求剩余分片 */
     fun downloadFile(msg: ChatMessage) {
+        if (cutoverPreparing) return
         val ctx = appContext ?: return
         val effectiveFileId = msg.fileId
         if (effectiveFileId.isBlank()) { notify("文件标识缺失"); return }

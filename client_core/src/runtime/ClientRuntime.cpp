@@ -1,4 +1,5 @@
 #include "client_core/runtime/ClientRuntime.h"
+#include "im.pb.h"
 
 #include <algorithm>
 #include <chrono>
@@ -28,6 +29,22 @@ public:
     void onRoamMessages(std::int64_t peerId,const std::vector<im::ChatProtocolMessage>& m,
                         bool hasMore,std::int64_t minSeq) override
     { if(auto runtime=m_runtime.lock())runtime->handleRoamMessages(peerId,m,hasMore,minSeq); }
+private:
+    std::weak_ptr<ClientRuntime> m_runtime;
+};
+class RuntimeFriendBridge final : public im::IFriendProtocolSink {
+public:
+    explicit RuntimeFriendBridge(std::weak_ptr<ClientRuntime> runtime):m_runtime(std::move(runtime)){}
+    void onFriendInfo(const im::FriendProtocolInfo& v) override
+    {if(auto r=m_runtime.lock())r->handleFriendInfo(v);}
+    void onFriendRequest(const im::FriendProtocolRequest& v) override
+    {if(auto r=m_runtime.lock())r->handleFriendRequest(v);}
+    void onFriendRequestList(const std::vector<im::FriendProtocolRequest>& v) override
+    {if(auto r=m_runtime.lock())r->handleFriendRequestList(v);}
+    void onFriendOffline(std::int64_t id) override
+    {if(auto r=m_runtime.lock())r->handleFriendOffline(id);}
+    void onDeleteFriendResult(int result,std::int64_t id) override
+    {if(auto r=m_runtime.lock())r->handleDeleteFriendResult(result,id);}
 private:
     std::weak_ptr<ClientRuntime> m_runtime;
 };
@@ -103,12 +120,16 @@ bool ClientRuntime::setDatabase(std::shared_ptr<im::storage::NativeDatabase> db)
     std::shared_ptr<im::storage::NativeDatabase> previous;
     std::shared_ptr<im::storage::NativeRepository> previousRepository;
     std::shared_ptr<im::message::MessageService> previousService;
+    std::shared_ptr<im::friend_service::FriendService> previousFriendService;
     std::shared_ptr<im::sync::SyncService> previousSync;
     std::shared_ptr<im::storage::NativeRepository> repository;
     std::shared_ptr<im::message::MessageService> service;
+    std::shared_ptr<im::friend_service::FriendService> friendService;
     std::shared_ptr<im::sync::SyncService> sync;
     if(db){repository=std::make_shared<im::storage::NativeRepository>(db);
            service=std::make_shared<im::message::MessageService>(repository.get());
+           friendService=std::make_shared<im::friend_service::FriendService>(
+               m_ownerId,repository.get());
            sync=std::make_shared<im::sync::SyncService>(m_ownerId,repository.get(),m_clock);}
     std::lock_guard<std::mutex> control(m_control);
     std::lock_guard<std::mutex> lk(m_mutex);
@@ -116,10 +137,113 @@ bool ClientRuntime::setDatabase(std::shared_ptr<im::storage::NativeDatabase> db)
     if (db && db->ownerId()!=0 && db->ownerId()!=m_ownerId) return false;
     previous = std::move(m_db);
     previousRepository=std::move(m_repository); previousService=std::move(m_messageService);
+    previousFriendService=std::move(m_friendService);
     previousSync=std::move(m_syncService);
     m_db = std::move(db);
-    m_repository=std::move(repository); m_messageService=std::move(service);m_syncService=std::move(sync);
+    m_repository=std::move(repository); m_messageService=std::move(service);
+    m_friendService=std::move(friendService);m_syncService=std::move(sync);
     return true;
+}
+
+bool ClientRuntime::loadFriends(std::vector<im::dto::FriendDto>* out,std::string* err) const
+{
+    std::shared_ptr<im::friend_service::FriendService> service;
+    {std::lock_guard<std::mutex> lk(m_mutex);service=m_friendService;}
+    if(!service){if(err)*err="friend service not ready";return false;}
+    return service->loadFriends(out,err);
+}
+
+bool ClientRuntime::loadFriendRequests(std::vector<im::dto::FriendRequestDto>* out,
+                                       std::string* err) const
+{
+    std::shared_ptr<im::friend_service::FriendService> service;
+    {std::lock_guard<std::mutex> lk(m_mutex);service=m_friendService;}
+    if(!service){if(err)*err="friend service not ready";return false;}
+    return service->loadFriendRequests(out,err);
+}
+
+bool ClientRuntime::requestFriendRequests()
+{
+    std::shared_ptr<im::ClientCore> core;
+    {std::lock_guard<std::mutex> lk(m_mutex);core=m_core;}
+    if(!m_accountAuthenticated.load()||!core||!core->isConnected())return false;
+    core->requestFriendRequests();return true;
+}
+
+bool ClientRuntime::sendAddFriendRequest(const std::string& nick)
+{
+    std::shared_ptr<im::ClientCore> core;
+    {std::lock_guard<std::mutex> lk(m_mutex);core=m_core;}
+    if(!m_accountAuthenticated.load()||!core||!core->isConnected()||nick.empty())return false;
+    core->sendAddFriendRequest(nick);return true;
+}
+
+bool ClientRuntime::answerFriendRequest(std::int64_t id,const std::string& nick,bool agree)
+{
+    std::shared_ptr<im::ClientCore> core;
+    {std::lock_guard<std::mutex> lk(m_mutex);core=m_core;}
+    if(!m_accountAuthenticated.load()||!core||!core->isConnected()||id<=0)return false;
+    core->answerAddFriend(static_cast<int>(id),nick,agree);return true;
+}
+
+bool ClientRuntime::deleteFriend(std::int64_t id)
+{
+    std::shared_ptr<im::ClientCore> core;
+    {std::lock_guard<std::mutex> lk(m_mutex);core=m_core;}
+    if(!m_accountAuthenticated.load()||!core||!core->isConnected()||id<=0)return false;
+    core->deleteFriend(static_cast<int>(id));return true;
+}
+
+void ClientRuntime::handleFriendInfo(const im::FriendProtocolInfo& value)
+{
+    std::shared_ptr<im::friend_service::FriendService> service;
+    {std::lock_guard<std::mutex> lk(m_mutex);service=m_friendService;}
+    if(!service||value.friendId<=0)return;
+    im::dto::FriendDto dto;dto.friendId=value.friendId;dto.nick=value.nick;
+    dto.avatar=std::to_string(value.iconId);dto.signature=value.signature;
+    dto.online=value.status==im::proto::STATUS_ONLINE;std::string error;
+    if(service->onFriendInfo(dto,&error)){
+        service->onPresence(dto.friendId,dto.online);
+        publishInvalidation(InvalidationBus::Domain::Friends,++m_dbVersion,m_generation.load());
+    }
+}
+
+void ClientRuntime::handleFriendRequest(const im::FriendProtocolRequest& value)
+{ handleFriendRequestList({value}); }
+
+void ClientRuntime::handleFriendRequestList(const std::vector<im::FriendProtocolRequest>& values)
+{
+    std::shared_ptr<im::friend_service::FriendService> service;
+    {std::lock_guard<std::mutex> lk(m_mutex);service=m_friendService;}
+    if(!service)return;bool changed=false;
+    for(const auto& value:values){
+        if(value.requesterId<=0||value.targetId<=0)continue;
+        im::dto::FriendRequestDto dto;dto.fromUserId=value.requesterId;dto.toUserId=value.targetId;
+        dto.createdAt=value.createdAt;dto.message=value.requesterNick;dto.direction=value.targetId==m_ownerId?
+            im::dto::RequestDirection::Incoming:im::dto::RequestDirection::Outgoing;
+        dto.requestId=std::to_string(value.requesterId)+":"+std::to_string(value.targetId)+":"+
+            std::to_string(value.createdAt);bool inserted=false;std::string error;
+        if(service->onFriendRequest(dto,&inserted,&error))changed=true;
+    }
+    if(changed)publishInvalidation(InvalidationBus::Domain::Friends,++m_dbVersion,m_generation.load());
+}
+
+void ClientRuntime::handleFriendOffline(std::int64_t id)
+{
+    std::shared_ptr<im::friend_service::FriendService> service;
+    {std::lock_guard<std::mutex> lk(m_mutex);service=m_friendService;}
+    if(!service)return;service->onPresence(id,false);
+    publishInvalidation(InvalidationBus::Domain::Friends,++m_dbVersion,m_generation.load());
+}
+
+void ClientRuntime::handleDeleteFriendResult(int result,std::int64_t id)
+{
+    if(result!=im::proto::DELETE_FRIEND_SUCCESS)return;
+    std::shared_ptr<im::friend_service::FriendService> service;
+    {std::lock_guard<std::mutex> lk(m_mutex);service=m_friendService;}
+    bool deleted=false;std::string error;
+    if(service&&service->deleteFriend(id,&deleted,&error))
+        publishInvalidation(InvalidationBus::Domain::Friends,++m_dbVersion,m_generation.load());
 }
 
 bool ClientRuntime::attachClientCore(const std::shared_ptr<im::ClientCore>& core)
@@ -127,14 +251,15 @@ bool ClientRuntime::attachClientCore(const std::shared_ptr<im::ClientCore>& core
     if(!core)return false;
     const auto weak=weak_from_this(); if(weak.expired())return false;
     auto bridge=std::make_shared<RuntimeMessageBridge>(weak);
+    auto friendBridge=std::make_shared<RuntimeFriendBridge>(weak);
     std::shared_ptr<im::ClientCore> previous;
     {
         std::lock_guard<std::mutex> control(m_control); std::lock_guard<std::mutex> lk(m_mutex);
         if(m_state!=State::Idle&&m_state!=State::Stopped)return false;
-        previous=std::move(m_core); m_core=core; m_messageBridge=bridge;
+        previous=std::move(m_core);m_core=core;m_messageBridge=bridge;m_friendBridge=friendBridge;
     }
     if(previous&&previous!=core)previous->setMessageProtocolSink({});
-    core->setMessageProtocolSink(bridge); return true;
+    core->setMessageProtocolSink(bridge);core->setFriendProtocolSink(friendBridge);return true;
 }
 
 ClientRuntime::MessageCommand ClientRuntime::sendText(std::int64_t conversationId,
@@ -158,6 +283,31 @@ ClientRuntime::MessageCommand ClientRuntime::sendText(std::int64_t conversationI
     publishInvalidation(InvalidationBus::Domain::Messages,++m_dbVersion,m_generation.load());
     publishInvalidation(InvalidationBus::Domain::Conversations,++m_dbVersion,m_generation.load());
     wakeOutboxPump(); return out;
+}
+
+ClientRuntime::MessageCommand ClientRuntime::sendMedia(const im::dto::MessageDto& input)
+{
+    MessageCommand out; out.operationId=nextOperationId("send_media");
+    if(out.operationId.empty()){out.error="runtime not running or command capacity full";return out;}
+    std::shared_ptr<im::message::MessageService> service;
+    {std::lock_guard<std::mutex> lk(m_mutex);service=m_messageService;}
+    const bool image=input.type==static_cast<int>(im::proto::IMAGE);
+    const bool file=input.type==static_cast<int>(im::proto::FILE);
+    if(!service||(!image&&!file)||input.conversationId<=0||input.peerId<=0||
+       input.fileId.empty()||input.fileName.empty()||input.fileSize<=0||
+       input.fileSize>im::proto::FILE_MAX_SIZE||input.contentType.empty()||input.sha256.size()!=64||
+       (image&&(input.imgW<=0||input.imgH<=0))){
+        out.error=!service?"database/message service not ready":"invalid media intent";
+        completeOperation(out.operationId,Result::Failed,out.error);return out;
+    }
+    auto intent=input;intent.ownerId=m_ownerId;intent.content=image?"[图片]":"[文件]";
+    const auto prepared=service->prepareOutgoing(intent);out.msgId=prepared.msgId;
+    out.localOrder=prepared.localOrder;out.accepted=prepared.ok;out.error=prepared.error;
+    if(!prepared.ok){completeOperation(out.operationId,Result::Failed,prepared.error);return out;}
+    {std::lock_guard<std::mutex> lk(m_mutex);m_inflightMessages[prepared.msgId]={0,out.operationId};}
+    publishInvalidation(InvalidationBus::Domain::Messages,++m_dbVersion,m_generation.load());
+    publishInvalidation(InvalidationBus::Domain::Conversations,++m_dbVersion,m_generation.load());
+    wakeOutboxPump();return out;
 }
 
 ClientRuntime::OperationId ClientRuntime::markRead(std::int64_t conversationId,std::int64_t readSeq)
@@ -604,7 +754,8 @@ void ClientRuntime::logout()
     {
         std::lock_guard<std::mutex> lk(m_mutex);
         db = std::move(m_db);
-        m_messageService.reset();m_syncService.reset();m_repository.reset();m_inflightMessages.clear();
+        m_messageService.reset();m_friendService.reset();m_syncService.reset();m_repository.reset();
+        m_inflightMessages.clear();
         m_gapPending.clear();m_gapInFlight.clear();m_gapPages.clear();
     }
     // logout 清除内存数据库句柄/密钥状态；下次登录必须经平台密钥桥重新打开并注入。
@@ -627,15 +778,16 @@ void ClientRuntime::destroy()
         m_accountAuthenticated.store(false);
         for (const auto& id : m_admitted) m_completions.complete(id, Result::Cancelled, "runtime destroying");
         db = std::move(m_db); // 锁内 move 出强引用，此后 m_db 为空
-        m_messageService.reset();m_syncService.reset();m_repository.reset();m_inflightMessages.clear();
+        m_messageService.reset();m_friendService.reset();m_syncService.reset();m_repository.reset();
+        m_inflightMessages.clear();
         m_gapPending.clear();m_gapInFlight.clear();m_gapPages.clear();
-        core=std::move(m_core); m_messageBridge.reset();
+        core=std::move(m_core);m_messageBridge.reset();m_friendBridge.reset();
     }
 
     stopOutboxPump();
     stopSyncTimer();
 
-    if(core)core->setMessageProtocolSink({});
+    if(core){core->setMessageProtocolSink({});core->setFriendProtocolSink({});}
 
     // 阶段一：关闭数据库（关闭顺序由 NativeDatabase 保证：停队列 → 关读池 → 关写连接）
     if (db) db->close();

@@ -142,6 +142,63 @@ public:
     bool getMessageByFileId(const std::string& fileId, StoredMessage& out);
     bool findMediaObject(const std::string& sha256, std::int64_t size, MediaObject& out);
 
+    // ---------------- 分片上传会话（断点续传） ----------------
+    struct UploadSession {
+        std::string uploadId;
+        int uploaderId = 0;
+        std::string deviceId;
+        int receiverId = 0;
+        std::string fileName;
+        std::int64_t fileSize = 0;
+        std::string sha256;
+        std::string contentType;
+        bool isImage = false;
+        std::int64_t chunkSize = 0;
+        int chunkCount = 0;
+        std::int64_t expiresAt = 0;
+        std::string state;   // open / finalized / cancelled
+        std::string fileId;  // finalize 后回填
+        std::string tmpPath;
+        std::int64_t createdAt = 0;
+    };
+
+    enum class ChunkStoreResult {
+        Stored,     // 首次接收并已持久化
+        Duplicate,  // 同片同内容重试，幂等成功（未重复写）
+        Conflict,   // 同片号不同内容，拒绝
+        Rejected,   // 会话不可写（不存在/非 open/已过期）
+    };
+
+    /** 创建上传会话（open 状态）。 */
+    bool createUploadSession(const UploadSession& s);
+    /** 同人同设备同文件存在 open 会话时复用（create 重试幂等）。 */
+    bool findOpenUploadSession(int uploaderId, const std::string& deviceId, int receiverId,
+                               const std::string& sha256, std::int64_t size, UploadSession& out);
+    bool getUploadSession(const std::string& uploadId, UploadSession& out);
+    /**
+     * 持久化一个已完成分片：同片同内容幂等 Duplicate；同片不同内容 Conflict；
+     * 会话非 open/过期 Rejected。会话状态校验与分片写入在同一写事务完成。
+     */
+    ChunkStoreResult storeUploadChunk(const std::string& uploadId, int index,
+                                      std::int64_t size, const std::string& sha256);
+    /** 已完成分片编号（升序）。 */
+    bool listUploadChunkIndices(const std::string& uploadId, std::vector<int>& out);
+    /**
+     * open→finalized 并回填 file_id（同一写事务）。
+     * 已 finalized：幂等返回 true 且 existingFileId 为原 file_id；已取消/不存在：false。
+     */
+    bool finalizeUploadSession(const std::string& uploadId, const std::string& fileId,
+                               std::string* existingFileId);
+    /** open→cancelled；已 cancelled 幂等 true；finalized/不存在 false。 */
+    bool cancelUploadSession(const std::string& uploadId);
+    /** 过期但仍占临时文件的 open/cancelled 会话（GC 用）。 */
+    bool listExpiredUploadSessions(std::int64_t now, std::vector<UploadSession>& out);
+    /** 删除会话及其分片记录（GC 在临时文件移除成功后调用）。 */
+    bool deleteUploadSession(const std::string& uploadId);
+    /** 登记内容寻址媒体对象（finalize 即入库，秒传不依赖消息已发送）。 */
+    bool registerMediaObject(const std::string& sha256, std::int64_t size,
+                             const std::string& path, const std::string& contentType);
+
     // ---------------- 认证 ----------------
     struct AuthSessionRecord {
         std::string sessionId;

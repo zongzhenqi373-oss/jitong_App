@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "core/Server.h"
+#include "media/HttpFileServer.h"
 #include "client_core/ClientCore.h"
 #include "client_core/Protocol.h"
 #include "sha256.h"
@@ -503,6 +504,19 @@ int main()
     png[4] = '\x0d'; png[5] = '\x0a'; png[6] = '\x1a'; png[7] = '\x0a';
     { std::ofstream out(mediaInput, std::ios::binary); out.write(png.data(), png.size()); }
 
+    // 取消在进入 HTTP 前生效，不应签发 file_id 或创建目标文件。
+    assert(a2.uploadMedia(mediaInput, idB, true, nullptr, [] { return true; }).empty());
+    assert(!b2.downloadMedia("cancelled-test", "/tmp/im_http_e2e_cancelled.png",
+                             nullptr, [] { return true; }));
+    const std::string hashCancelInput = "/tmp/im_http_e2e_hash_cancel.bin";
+    { std::ofstream out(hashCancelInput, std::ios::binary | std::ios::trunc);
+      std::string bytes(256 * 1024, 'Q'); out.write(bytes.data(), bytes.size()); }
+    int cancelChecks = 0;
+    assert(a2.uploadMedia(hashCancelInput, idB, false, nullptr,
+        [&cancelChecks] { return ++cancelChecks >= 3; }).empty());
+    assert(cancelChecks >= 3); // 已进入流式 hash，而非仅在调用入口拒绝
+    std::remove(hashCancelInput.c_str());
+
     const std::string mediaId = a2.uploadMedia(mediaInput, idB, true);
     assert(!mediaId.empty());
     a2.sendFileMessage(idB, mediaId, "photo.png", static_cast<std::int64_t>(png.size()),
@@ -513,15 +527,58 @@ int main()
         return false;
     }));
 
+    // 首次上传并发出消息后，该摘要已进入服务端索引。再次上传相同内容应走
+    // preflight + 随机片段 proof，获得新的授权 file_id，但复用同一份物理文件。
+    // 故意以普通文件 MIME 发起：若错误地走整文件上传，会产生不同的 /file 路径，
+    // 因而下面的物理路径相等断言能区分 proof 命中与整文件回退。
+    const std::string instantId = a2.uploadMedia(mediaInput, idB, false);
+    assert(!instantId.empty() && instantId != mediaId);
+    imsrv::StoredMessage originalStored;
+    imsrv::HttpFileServer::UploadRecord instantRecord;
+    assert(server.db().getMessageByFileId(mediaId, originalStored));
+    assert(server.httpFileServer()->findUploadRecord(instantId, instantRecord));
+    assert(originalStored.mediaPath == instantRecord.mediaPath);
+    assert(instantRecord.receiverId == idB && instantRecord.uploaderId == idA);
+
     // 消息参与者可下载，第三方即使知道 file_id 也不能下载。
     assert(b2.downloadMedia(mediaId, mediaOutput));
     { std::ifstream in(mediaOutput, std::ios::binary);
       std::string got((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
       assert(got == png); }
+    // 预置部分文件，验证客户端使用 206 Content-Range 接续而不是重复拼接或截断。
+    const std::string partialOutput = "/tmp/im_http_e2e_range.part";
+    { std::ofstream out(partialOutput, std::ios::binary | std::ios::trunc);
+      out.write(png.data(), 1000); }
+    assert(b2.downloadMedia(mediaId, partialOutput));
+    { std::ifstream in(partialOutput, std::ios::binary);
+      std::string got((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+      assert(got == png); }
+    // Range 探针：坏前缀 + 正确尾部只能由 206 追加产生；若服务器忽略 Range
+    // 并返回 200，客户端会覆写为完整正确文件，下面的断言会失败。
+    const std::string rangeProbe = "/tmp/im_http_e2e_range_probe.part";
+    { std::ofstream out(rangeProbe, std::ios::binary | std::ios::trunc);
+      std::string wrongPrefix(1000, 'X'); out.write(wrongPrefix.data(), wrongPrefix.size()); }
+    assert(b2.downloadMedia(mediaId, rangeProbe));
+    { std::ifstream in(rangeProbe, std::ios::binary);
+      std::string got((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+      assert(got.size() == png.size());
+      assert(got.substr(0, 1000) == std::string(1000, 'X'));
+      assert(got.substr(1000) == png.substr(1000)); }
+    const std::string invalidPart = "/tmp/im_http_e2e_oversized.part";
+    { std::ofstream out(invalidPart, std::ios::binary | std::ios::trunc);
+      std::string oversized(png.size() + 1, 'X'); out.write(oversized.data(), oversized.size()); }
+    assert(b2.downloadMedia(mediaId, invalidPart)); // 416 后清理坏偏移，有界从头重试
+    { std::ifstream in(invalidPart, std::ios::binary);
+      std::string got((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+      assert(got == png); }
     assert(!c.downloadMedia(mediaId, "/tmp/im_http_e2e_forbidden.png"));
+    assert(!b2.downloadMedia("../bad-id", "/tmp/im_http_e2e_invalid.png"));
 
     std::remove(mediaInput.c_str());
     std::remove(mediaOutput.c_str());
+    std::remove(partialOutput.c_str());
+    std::remove(rangeProbe.c_str());
+    std::remove(invalidPart.c_str());
     a2.disconnect();
     b2.disconnect();
     c.disconnect();

@@ -22,6 +22,8 @@ const MigrationStep kMigrations[] = {
     {4, "004_local_sequence", kMigration004Sql},
     {5, "005_friend_domain", kMigration005Sql},
     {6, "006_ai_suggestions", kMigration006Sql},
+    {7, "007_upload_drafts", kMigration007Sql},
+    {8, "008_upload_dimensions", kMigration008Sql},
 };
 
 int latestVersionImpl()

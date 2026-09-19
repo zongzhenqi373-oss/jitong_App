@@ -202,7 +202,9 @@ if(CLIENT_CORE_WITH_SQLCIPHER)
         src/search/SearchService.cpp
         src/friend/FriendService.cpp
         src/ai/AiSuggestionService.cpp
-        src/sync/SyncService.cpp)
+        src/sync/SyncService.cpp
+        src/media/MediaService.cpp
+        src/media/ClientCoreUploadTransport.cpp)
 
     # 把 migrations/*.sql 生成为内嵌字符串头：Android/桌面都不依赖运行时文件
     set(_sql_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/storage/migrations")
@@ -213,6 +215,8 @@ if(CLIENT_CORE_WITH_SQLCIPHER)
     file(READ "${_sql_dir}/004_local_sequence.sql" _sql_004)
     file(READ "${_sql_dir}/005_friend_domain.sql" _sql_005)
     file(READ "${_sql_dir}/006_ai_suggestions.sql" _sql_006)
+    file(READ "${_sql_dir}/007_upload_drafts.sql" _sql_007)
+    file(READ "${_sql_dir}/008_upload_dimensions.sql" _sql_008)
     file(WRITE "${_gen_dir}/migrations_sql.h"
 "// 自动生成，勿手改（来源：src/storage/migrations/*.sql）
 #ifndef CLIENT_CORE_GENERATED_MIGRATIONS_SQL_H
@@ -235,6 +239,12 @@ ${_sql_005}
 )SQL\";
 inline const char* kMigration006Sql = R\"SQL(
 ${_sql_006}
+)SQL\";
+inline const char* kMigration007Sql = R\"SQL(
+${_sql_007}
+)SQL\";
+inline const char* kMigration008Sql = R\"SQL(
+${_sql_008}
 )SQL\";
 } } // namespace
 #endif
@@ -493,6 +503,16 @@ if(CLIENT_CORE_BUILD_TESTS)
         target_link_libraries(test_sync_service PRIVATE client_core)
         add_test(NAME sync_service COMMAND test_sync_service)
 
+        # P7 媒体：分片上传草稿状态机（登记幂等/分片确认/终态保护/恢复扫描）
+        add_executable(test_upload_draft tests/test_upload_draft.cpp)
+        target_link_libraries(test_upload_draft PRIVATE client_core)
+        add_test(NAME upload_draft COMMAND test_upload_draft)
+
+        # P7 媒体：MediaService 断点续传编排（断网/强杀/finalize 丢响应/取消/会话丢失）
+        add_executable(test_media_service tests/test_media_service.cpp)
+        target_link_libraries(test_media_service PRIVATE client_core)
+        add_test(NAME media_service COMMAND test_media_service)
+
         add_executable(test_db_command_queue tests/test_db_command_queue.cpp)
         target_link_libraries(test_db_command_queue PRIVATE client_core)
         add_test(NAME db_command_queue COMMAND test_db_command_queue)
@@ -504,6 +524,10 @@ if(CLIENT_CORE_BUILD_TESTS)
         add_executable(test_room_import tests/test_room_import.cpp)
         target_link_libraries(test_room_import PRIVATE client_core)
         add_test(NAME room_import COMMAND test_room_import)
+
+        add_executable(test_legacy_delta tests/test_legacy_delta.cpp)
+        target_link_libraries(test_legacy_delta PRIVATE client_core)
+        add_test(NAME legacy_delta COMMAND test_legacy_delta)
 
         # P6-T05：跨进程排他锁（第二进程打开被拒）
         add_executable(test_process_lock tests/test_process_lock.cpp)

@@ -47,6 +47,7 @@ using im::storage::NativeDatabase;
 using im::storage::DbStatus;
 using im::storage::MigrationMessage;
 using im::storage::MigrationConversation;
+using im::storage::LegacyDeltaChange;
 using im::storage::MigrationImporter;
 using im::storage::MigrationSummary;
 using im::storage::MigrationState;
@@ -270,6 +271,30 @@ bool decodeConversationBatch(jbyte* data, jsize len, std::vector<MigrationConver
     return true;
 }
 
+bool decodeLegacyDeltaBatch(jbyte* data, jsize len, std::vector<LegacyDeltaChange>& out,
+                            std::string& err)
+{
+    if (!data || len <= 0) { err = "空 delta 批次"; return false; }
+    ByteReader r(reinterpret_cast<const unsigned char*>(data), static_cast<std::size_t>(len));
+    std::uint32_t magic=0, version=0, count=0;
+    if (!r.u32(magic) || magic != 0x4A54444Cu) { err = "delta 魔数非法"; return false; }
+    if (!r.u32(version) || version != 1u) { err = "delta 版本不支持"; return false; }
+    if (!r.u32(count) || count > kMaxBatchMessages) { err = "delta 行数非法或超限"; return false; }
+    out.reserve(count);
+    for (std::uint32_t i=0; i<count; ++i) {
+        LegacyDeltaChange c; int owner=0;
+        if (!r.i64(c.changeSeq) || !r.i32(owner) || !r.str(c.entityType) ||
+            !r.str(c.entityKey) || !r.str(c.operation) || !r.i64(c.changedAt) ||
+            !r.i32(c.payloadVersion) || !r.str(c.payload)) {
+            err = "delta 解码失败（第 " + std::to_string(i) + " 条）"; return false;
+        }
+        c.ownerId = owner;
+        out.push_back(std::move(c));
+    }
+    if (!r.eof()) { err = "delta 批次存在尾随垃圾"; return false; }
+    return true;
+}
+
 } // namespace
 
 extern "C" {
@@ -379,6 +404,69 @@ bool acquireDb(jlong handle, std::shared_ptr<NativeDatabase>& db, std::int64_t& 
     return db && db->status() == DbStatus::Ready && ownerId > 0;
 }
 
+// ---- cutover DIRTY → 带 MAC KV 镜像的桥（P7-G8） ----
+// NativeDatabase 的 transaction hook 在首次业务事务中原子推进 DIRTY 后，
+// 经此回调 Kotlin 写 CutoverMirrorStore。回调可能发生在非 JVM 附着线程
+// （如内核网络线程驱动的来消息落库），必须按需 AttachCurrentThread。
+// jclass/jmethodID 在 nativeOpenAccountDatabase（Java 线程）缓存为全局引用，
+// 避免在 native 附着线程上 FindClass 找不到应用类。
+
+std::mutex g_dirtyBridgeMutex;
+jclass g_nativeBindingsClass = nullptr;      // global ref
+jmethodID g_onCutoverDirtyMethod = nullptr;  // static (JJIJI... )V
+
+bool cacheCutoverDirtyBridge(JNIEnv* env)
+{
+    std::lock_guard<std::mutex> lk(g_dirtyBridgeMutex);
+    if (g_nativeBindingsClass && g_onCutoverDirtyMethod) return true;
+    jclass local = env->FindClass("com/jitong/im/core/NativeBindings");
+    if (!local) return false;
+    g_nativeBindingsClass = static_cast<jclass>(env->NewGlobalRef(local));
+    env->DeleteLocalRef(local);
+    if (!g_nativeBindingsClass) return false;
+    // (ownerId:J, epoch:J, state:I, highWater:J, schemaVersion:I, keyId:String, summary:String, updatedAt:J)V
+    g_onCutoverDirtyMethod = env->GetStaticMethodID(
+        g_nativeBindingsClass, "onCutoverDirtyFromNative",
+        "(JJIJILjava/lang/String;Ljava/lang/String;J)V");
+    if (!g_onCutoverDirtyMethod) {
+        env->DeleteGlobalRef(g_nativeBindingsClass);
+        g_nativeBindingsClass = nullptr;
+        return false;
+    }
+    return true;
+}
+
+void notifyCutoverDirty(std::int64_t ownerId, const im::storage::CutoverJournalSnapshot& s)
+{
+    JavaVM* vm = jtGlobalJavaVm();
+    if (!vm) return;
+    JNIEnv* env = nullptr;
+    bool detach = false;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
+        if (vm->AttachCurrentThread(&env, nullptr) != JNI_OK || !env) return;
+        detach = true;
+    }
+    {
+        std::lock_guard<std::mutex> lk(g_dirtyBridgeMutex);
+        if (g_nativeBindingsClass && g_onCutoverDirtyMethod) {
+            jstring keyId = env->NewStringUTF(s.keyId.c_str());
+            jstring summary = env->NewStringUTF(s.summary.c_str());
+            env->CallStaticVoidMethod(g_nativeBindingsClass, g_onCutoverDirtyMethod,
+                                      static_cast<jlong>(ownerId), static_cast<jlong>(s.epoch),
+                                      static_cast<jint>(s.state), static_cast<jlong>(s.highWater),
+                                      static_cast<jint>(s.schemaVersion), keyId, summary,
+                                      static_cast<jlong>(s.updatedAt));
+            if (keyId) env->DeleteLocalRef(keyId);
+            if (summary) env->DeleteLocalRef(summary);
+            if (env->ExceptionCheck()) {
+                env->ExceptionDescribe();
+                env->ExceptionClear();
+            }
+        }
+    }
+    if (detach) vm->DetachCurrentThread();
+}
+
 // 搜索结果二进制（小端）：magic:u32, version:u32, count:u32，随后每项：
 // msgId:string, conversationId:i64, peerId:i64, ts:i64, snippet:string,
 // highlightUnit:i32, rangeCount:u32, ranges[start:i32,end:i32]。
@@ -462,6 +550,18 @@ Java_com_jitong_im_core_NativeBindings_nativeOpenAccountDatabase(JNIEnv* env, jc
         }
     }
     if (!attached) { db->close(); return JNI_FALSE; }
+
+    // cutover DIRTY 镜像桥：transaction hook 推进 DIRTY 后通知 Kotlin 写带 MAC 镜像。
+    // 桥不可用时仍打开库（镜像失败最坏 fail-close 为 Repair，绝不回退 Room），但记日志。
+    if (cacheCutoverDirtyBridge(env)) {
+        const std::int64_t owner = static_cast<std::int64_t>(ownerId);
+        db->setCutoverDirtyListener([owner](const im::storage::CutoverJournalSnapshot& s) {
+            notifyCutoverDirty(owner, s);
+        });
+    } else {
+        __android_log_print(ANDROID_LOG_WARN, "JitongKernel",
+                            "cutover dirty bridge 不可用，DIRTY 镜像只能依赖冷启动 fail-close");
+    }
     // 旧库可能 drain Writer；必须在 handle 锁外关闭。
     if (previous && previous != db) previous->close();
     return JNI_TRUE;
@@ -604,6 +704,87 @@ Java_com_jitong_im_core_NativeBindings_nativeSubmitConversationBatch(JNIEnv* env
     } catch (...) {
         return report(env, "err|Internal|Native 会话批次处理异常");
     }
+}
+
+// String nativeSubmitLegacyDeltaBatch(long handle, long epoch, long expectedAfter, byte[] batch)
+JNIEXPORT jstring JNICALL
+Java_com_jitong_im_core_NativeBindings_nativeSubmitLegacyDeltaBatch(JNIEnv* env, jclass,
+    jlong handle, jlong epoch, jlong expectedAfter, jbyteArray batch)
+{
+    std::shared_ptr<NativeDatabase> db; std::int64_t ownerId=0;
+    if (!acquireDb(handle, db, ownerId)) return report(env, "err|NotOpen|库未打开或句柄无效");
+    if (!batch || epoch <= 0 || expectedAfter < 0) return report(env, "err|BadData|delta 参数非法");
+    const jsize len=env->GetArrayLength(batch);
+    if (len<=0 || len>kMaxBatchBytes) return report(env, "err|BadData|delta 批次大小非法或超限");
+    try {
+        std::vector<LegacyDeltaChange> changes; std::string error;
+        {
+            JByteArrayRead bytes(env,batch);
+            if(!bytes.get() || !decodeLegacyDeltaBatch(bytes.get(),len,changes,error))
+                return report(env,std::string("err|BadData|")+error);
+        }
+        const auto out=db->submitLegacyDeltaBatch(ownerId,epoch,expectedAfter,changes);
+        if(out.timedOut)return report(env,std::string("err|TimedOutButMayCommit|")+out.error);
+        if(!out.ok)return report(env,std::string("err|")+toString(out.command)+"|"+out.error);
+        return report(env,"ok|checkpoint="+std::to_string(out.committedCheckpoint));
+    } catch (...) {
+        return report(env,"err|Internal|Native delta 处理异常");
+    }
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_jitong_im_core_NativeBindings_nativeGetLegacyDeltaCheckpoint(JNIEnv* env,jclass,
+    jlong handle,jlong epoch)
+{
+    std::shared_ptr<NativeDatabase> db;std::int64_t ownerId=0;
+    if(!acquireDb(handle,db,ownerId)||epoch<=0)return report(env,"err|NotOpen|库未打开或参数非法");
+    std::int64_t checkpoint=0;bool queryOk=false;
+    const auto rr=db->withRead([&](sqlite3*d){queryOk=MigrationImporter::readLegacyDeltaCheckpoint(d,epoch,&checkpoint);});
+    if(rr!=im::storage::ReadResult::Ok||!queryOk)return report(env,"err|Internal|checkpoint 查询失败");
+    return report(env,"ok|checkpoint="+std::to_string(checkpoint));
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_jitong_im_core_NativeBindings_nativeSeedLegacyDeltaCheckpoint(JNIEnv* env,jclass,
+    jlong handle,jlong epoch,jlong baseline,jlong updatedAt)
+{
+    std::shared_ptr<NativeDatabase> db;std::int64_t ownerId=0;
+    if(!acquireDb(handle,db,ownerId))return report(env,"err|NotOpen|库未打开");
+    std::string error;
+    if(!db->seedLegacyDeltaCheckpoint(ownerId,epoch,baseline,updatedAt,&error))
+        return report(env,"err|Rejected|"+error);
+    return report(env,"ok|checkpoint="+std::to_string(baseline));
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_jitong_im_core_NativeBindings_nativeGetCutoverJournal(JNIEnv* env,jclass,jlong handle)
+{
+    std::shared_ptr<NativeDatabase> db;std::int64_t ownerId=0;
+    if(!acquireDb(handle,db,ownerId))return report(env,"err|NotOpen|库未打开");
+    im::storage::CutoverJournalSnapshot s;
+    if(!db->queryCutoverJournal(ownerId,&s))return report(env,"err|Internal|journal 查询失败");
+    if(!s.present)return report(env,"ok|present=0");
+    return report(env,"ok|present=1|epoch="+std::to_string(s.epoch)+
+        "|state="+std::to_string(static_cast<int>(s.state))+
+        "|highWater="+std::to_string(s.highWater)+
+        "|schemaVersion="+std::to_string(s.schemaVersion)+
+        "|keyId="+s.keyId+"|updatedAt="+std::to_string(s.updatedAt)+"|summary="+s.summary);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_jitong_im_core_NativeBindings_nativeAdvanceCutoverJournal(JNIEnv* env,jclass,
+    jlong handle,jlong epoch,jint expectedState,jint targetState,jlong highWater,
+    jint schemaVersion,jstring keyId,jstring summary,jlong updatedAt)
+{
+    std::shared_ptr<NativeDatabase> db;std::int64_t ownerId=0;
+    if(!acquireDb(handle,db,ownerId))return report(env,"err|NotOpen|库未打开");
+    if(targetState<0||targetState>3||expectedState< -1||expectedState>3)
+        return report(env,"err|BadData|cutover 状态非法");
+    std::string error;
+    const bool ok=db->advanceCutoverJournal(ownerId,epoch,expectedState,
+        static_cast<im::storage::CutoverJournalState>(targetState),highWater,schemaVersion,
+        jstr(env,keyId),jstr(env,summary),updatedAt,&error);
+    return report(env,ok?"ok":("err|Rejected|"+error));
 }
 
 // String nativeFinishMigration(long handle, long msgs, long convs, long minSeq, long maxSeq, long fts)
@@ -766,6 +947,53 @@ Java_com_jitong_im_core_NativeBindings_nativeLoadConversations(JNIEnv* env,jclas
         writer.i64(row.conversationId);writer.i64(row.ownerId);writer.i64(row.peerId);
         if(!writer.str(row.lastMsg))return nullptr;
         writer.i64(row.lastTs);writer.i64(row.unread);
+    }
+    if(writer.bytes.size()>static_cast<std::size_t>(std::numeric_limits<jsize>::max()))return nullptr;
+    auto result=env->NewByteArray(static_cast<jsize>(writer.bytes.size()));if(!result)return nullptr;
+    env->SetByteArrayRegion(result,0,static_cast<jsize>(writer.bytes.size()),
+        reinterpret_cast<const jbyte*>(writer.bytes.data()));
+    return env->ExceptionCheck()?nullptr:result;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_jitong_im_core_NativeBindings_nativeBeginDownloadTask(JNIEnv* env,jclass,jlong handle,
+    jstring taskId,jstring msgId,jstring fileId,jstring localPath,jlong generation)
+{
+    std::shared_ptr<NativeDatabase> db;std::int64_t owner=0;
+    if(!acquireDb(handle,db,owner)||generation<=0)return JNI_FALSE;
+    auto h=jt::lookupHandle(handle);if(!h)return JNI_FALSE;
+    std::shared_ptr<im::runtime::ClientRuntime> runtime;
+    { std::lock_guard<std::mutex> lk(h->mutex);runtime=h->runtime; }
+    if(!runtime||runtime->ownerId()!=owner||!runtime->isCurrentGeneration(generation))return JNI_FALSE;
+    im::storage::NativeRepository repo(db);
+    return repo.beginDownloadTask(owner,jstr(env,taskId),jstr(env,msgId),jstr(env,fileId),
+        jstr(env,localPath),generation)?JNI_TRUE:JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_jitong_im_core_NativeBindings_nativeFinishDownloadTask(JNIEnv* env,jclass,jlong handle,
+    jstring taskId,jlong generation,jint state,jlong transferred)
+{
+    std::shared_ptr<NativeDatabase> db;std::int64_t owner=0;
+    if(!acquireDb(handle,db,owner))return JNI_FALSE;
+    im::storage::NativeRepository repo(db);
+    return repo.finishDownloadTask(owner,jstr(env,taskId),generation,state,transferred)
+        ?JNI_TRUE:JNI_FALSE;
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_jitong_im_core_NativeBindings_nativeListRecoverableDownloads(JNIEnv* env,jclass,jlong handle)
+{
+    std::shared_ptr<NativeDatabase> db;std::int64_t owner=0;
+    if(!acquireDb(handle,db,owner))return nullptr;
+    im::storage::NativeRepository repo(db);
+    std::vector<im::storage::DownloadTaskRow> rows;
+    if(!repo.listRecoverableDownloads(owner,&rows))return nullptr;
+    ByteWriter writer;writer.u32(0x4A54444Cu);writer.u32(1u);writer.u32(static_cast<std::uint32_t>(rows.size()));
+    for(const auto& row:rows){
+        if(!writer.str(row.taskId)||!writer.str(row.msgId)||!writer.str(row.fileId)||
+           !writer.str(row.localPath)||!writer.str(row.expectedSha256))return nullptr;
+        writer.i64(row.totalSize);writer.i64(row.transferred);writer.i64(row.generation);
     }
     if(writer.bytes.size()>static_cast<std::size_t>(std::numeric_limits<jsize>::max()))return nullptr;
     auto result=env->NewByteArray(static_cast<jsize>(writer.bytes.size()));if(!result)return nullptr;

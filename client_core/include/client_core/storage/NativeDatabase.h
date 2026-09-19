@@ -58,6 +58,7 @@ struct MigrationSubmitOutcome {
     bool timedOut = false;  // 等待超时，命令可能仍在 Writer 运行（TimedOutButMayCommit）
     CommandResult command = CommandResult::NotOpen;
     std::size_t imported = 0;
+    std::int64_t committedCheckpoint = 0;
     std::string error;      // 失败原因（不含正文）
 };
 
@@ -69,6 +70,24 @@ struct SelfTestOutcome {
     bool completed = false;
     MigrationSummary summary;
     std::string error;
+};
+
+enum class CutoverJournalState : int {
+    LegacyActive = 0,
+    Prepared = 1,
+    NativeCommittedNoWrite = 2,
+    NativeCommittedDirty = 3,
+};
+
+struct CutoverJournalSnapshot {
+    bool present = false;
+    std::int64_t epoch = 0;
+    CutoverJournalState state = CutoverJournalState::LegacyActive;
+    std::int64_t highWater = 0;
+    int schemaVersion = 0;
+    std::string keyId;
+    std::string summary;
+    std::int64_t updatedAt = 0;
 };
 
 class NativeDatabase {
@@ -139,6 +158,32 @@ public:
         const std::string& checkpoint,
         std::chrono::milliseconds timeout = std::chrono::seconds(60));
 
+    /** Room v10 delta：唯一 Writer 原子应用数据与 legacy_delta checkpoint。 */
+    MigrationSubmitOutcome submitLegacyDeltaBatch(
+        std::int64_t ownerId, std::int64_t epoch, std::int64_t expectedAfter,
+        const std::vector<LegacyDeltaChange>& changes,
+        std::chrono::milliseconds timeout = std::chrono::seconds(60));
+
+    /**
+     * Native 业务写唯一入口：若 journal=NO_WRITE，在同一事务、业务 SQL 之前自动推进 DIRTY。
+     * 迁移/import/journal 管理不得调用此入口，避免在 cutover 前误标脏。
+     */
+    CommandResult submitBusinessSync(const DbCommandQueue::WriteFn& fn,
+        std::chrono::milliseconds timeout, bool* timedOut = nullptr);
+
+    /**
+     * DIRTY 推进通知：仅在 submitBusinessSync 真正把 NO_WRITE→DIRTY 提交成功后，
+     * 在调用方线程触发一次，携带提交后的完整 journal 快照（含 updatedAt）。
+     * 平台侧用它把带 MAC 的 KV 镜像同步到 DIRTY；回调失败不影响 DB 已提交事实
+     * （强杀窗口由冷启动双证据 fail-close 兜底为 Repair，绝不回退 Room）。
+     */
+    void setCutoverDirtyListener(std::function<void(const CutoverJournalSnapshot&)> listener);
+
+    /** snapshot 之前首次建立 epoch 的 delta baseline；单 Writer 原子、相同值幂等。 */
+    bool seedLegacyDeltaCheckpoint(std::int64_t ownerId,std::int64_t epoch,
+                                   std::int64_t baseline,std::int64_t updatedAt,
+                                   std::string* err=nullptr);
+
     /** 完成迁移：在同一 Writer 事务内对账 + 写 completed + 置 Verified。 */
     bool finishMigration(std::int64_t ownerId, const MigrationSummary& expected,
                          MigrationSummary* actual = nullptr, std::string* err = nullptr);
@@ -148,6 +193,19 @@ public:
 
     /** 数据库自检（只读）。 */
     SelfTestOutcome runSelfTest(std::int64_t ownerId);
+
+    /** 读取最新 cutover journal；无记录时 present=false。 */
+    bool queryCutoverJournal(std::int64_t ownerId, CutoverJournalSnapshot* out);
+
+    /**
+     * 严格单向推进：Missing→Legacy→Prepared→NoWrite→Dirty；同状态同内容幂等。
+     * expectedState=-1 仅用于创建 LegacyActive，禁止跳级和回退。
+     */
+    bool advanceCutoverJournal(std::int64_t ownerId, std::int64_t epoch, int expectedState,
+                               CutoverJournalState target, std::int64_t highWater,
+                               int schemaVersion, const std::string& keyId,
+                               const std::string& summary, std::int64_t updatedAt,
+                               std::string* err = nullptr);
 
 private:
     bool openInternal(const std::string& filesDir, std::int64_t ownerId,
@@ -165,6 +223,9 @@ private:
     std::mutex m_mutex;
     // 串行化完整 open/close 生命周期；不能只保护最终指针交换。
     std::mutex m_lifecycleMutex;
+
+    std::mutex m_dirtyListenerMutex;
+    std::function<void(const CutoverJournalSnapshot&)> m_dirtyListener;
 };
 
 } // namespace storage

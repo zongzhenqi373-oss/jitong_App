@@ -1,16 +1,29 @@
 package com.jitong.im.core
 
 import android.content.Context
+import androidx.room.Room
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
+import com.jitong.im.data.db.AppDatabase
+import com.jitong.im.data.db.ConversationEntity
+import com.jitong.im.data.db.MessageEntity
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.jitong.im.core.platform.NativeDbKeyPlatform
 import com.jitong.im.data.MigrationExporter
+import com.jitong.im.data.LegacyDeltaApplier
+import com.jitong.im.data.CutoverMigrationCoordinator
 import com.jitong.im.data.crypto.DbKeyManager
 import com.jitong.im.data.crypto.DbKeyResult
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import com.tencent.mmkv.MMKV
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -293,6 +306,10 @@ class ShadowMigrationTest {
             assertTrue("SDK 打开同一 Native 库", sdk.openAccountDatabase(OWNER, nativeDir.absolutePath, bridge))
             assertTrue("创建 Runtime", sdk.createRuntime(OWNER))
             assertTrue("启动 Runtime", sdk.startRuntime() > 0)
+            assertEquals("好友空快照经 Runtime/JNI/SDK 解码", emptyList<JitongSdk.NativeFriend>(),
+                sdk.loadFriends())
+            assertEquals("好友申请空快照经 Runtime/JNI/SDK 解码",
+                emptyList<JitongSdk.NativeFriendRequest>(), sdk.loadFriendRequests())
             val conversations=sdk.loadConversations()
             assertEquals("会话快照由 Native 解码",1,conversations?.size)
             assertEquals(CONV,conversations!!.first().conversationId)
@@ -350,6 +367,81 @@ class ShadowMigrationTest {
     }
 
     @Test
+    fun runtimeSendMedia_persistsAllVariantsBeforeNetwork()
+    {
+        openNative();closeNative()
+        val sdk=JitongSdk();assertTrue(sdk.start("im.example.com"))
+        try {
+            assertTrue(sdk.openAccountDatabase(OWNER,nativeDir.absolutePath,bridge))
+            assertTrue(sdk.createRuntime(OWNER));assertTrue(sdk.startRuntime()>0)
+            val receipt=sdk.sendMedia(CONV,PEER,1,"origin-id","photo.jpg",4096,
+                "image/jpeg","a".repeat(64),1200,800,"/local/photo.jpg",
+                "small-id",256,"b".repeat(64),240,180,
+                "large-id",1024,"c".repeat(64),960,640)
+            assertTrue("Native media draft: ${receipt.error}",receipt.accepted)
+            val message=sdk.loadHistory(CONV,10)!!.messages.first()
+            assertEquals(receipt.msgId,message.msgId);assertEquals(1,message.type)
+            assertEquals("origin-id",message.media.fileId)
+            assertEquals("small-id",message.media.thumbnailFileId)
+            assertEquals("large-id",message.media.largeThumbnailFileId)
+            assertEquals(1200,message.media.width);assertEquals(800,message.media.height)
+            assertEquals(0,message.status)
+            val part=File(context.filesDir,"native_media/download-test.part")
+            val generation=sdk.beginDownloadTask("download-test",receipt.msgId,"origin-id",part.absolutePath)
+            assertTrue("已落库媒体才能持久化下载任务",generation>0)
+            assertEquals("权威消息摘要随恢复快照返回","a".repeat(64),
+                sdk.recoverableDownloads().single().sha256)
+            assertTrue(sdk.finishDownloadTask("download-test",generation,2,1024))
+            assertEquals(1024,sdk.recoverableDownloads().single().transferred)
+            assertTrue(sdk.finishDownloadTask("download-test",generation,4,1024))
+            assertTrue("取消终态不参与恢复",sdk.recoverableDownloads().isEmpty())
+        } finally { sdk.stop() }
+    }
+
+    @Test
+    fun nativeMessageController_drivesSnapshotRefreshAndKeepsUiThin() = runBlocking {
+        withRoom { insertRoomMessages(it, 5) }
+        openNative()
+        withRoom { room -> migrateAll(room) }
+        closeNative()
+
+        val sdk = JitongSdk()
+        val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        assertTrue("SDK start", sdk.start("im.example.com"))
+        try {
+            assertTrue("打开 Native DB", sdk.openAccountDatabase(OWNER, nativeDir.absolutePath, bridge))
+            assertTrue("创建 Runtime", sdk.createRuntime(OWNER))
+            assertTrue("启动 Runtime", sdk.startRuntime() > 0)
+            val controller = NativeMessageController(sdk, controllerScope)
+
+            val conversations = withTimeout(5_000) {
+                controller.conversations.first { it.size == 1 }
+            }
+            assertEquals(CONV, conversations.single().conversationId)
+
+            val pageFlow = controller.messages(CONV)
+            val initial = withTimeout(5_000) {
+                pageFlow.first { !it.loading && it.messages.size == 5 }
+            }
+            assertEquals(listOf("rm-1", "rm-2", "rm-3", "rm-4", "rm-5"),
+                initial.messages.map { it.msgId })
+
+            val receipt = controller.sendText(CONV, PEER, "Native 页面发送")
+            assertTrue(receipt.accepted)
+            val refreshed = withTimeout(5_000) {
+                pageFlow.first { page -> page.messages.any { it.msgId == receipt.msgId } }
+            }
+            assertEquals(6, refreshed.messages.size)
+            assertEquals(receipt.msgId, refreshed.messages.last().msgId)
+            controller.closeConversation(CONV)
+            controller.close()
+        } finally {
+            controllerScope.cancel()
+            sdk.stop()
+        }
+    }
+
+    @Test
     fun conversations_preserveUnreadAndEmptyConversation()
     {
         withRoom { room ->
@@ -396,6 +488,103 @@ class ShadowMigrationTest {
             }
         } finally {
             closeNative()
+        }
+    }
+
+    @Test
+    fun roomV10Delta_commitsDataAndCheckpointThroughJni() = runBlocking {
+        val room = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            AppDatabase.installChangeLogTriggers(room.openHelper.writableDatabase)
+            room.messageDao().insertWithFts(MessageEntity(ownerId=OWNER,msgId="delta-jni",
+                conversationId=CONV,peerId=PEER.toInt(),fromMe=true,type=0,content="你好",
+                ts=123,seq=9,status=1))
+            room.conversationDao().insertIgnore(ConversationEntity(CONV,OWNER,PEER.toInt(),"你好",123,2))
+            val page=MigrationExporter.nextChanges(room.openHelper.readableDatabase,OWNER,0,100)
+            assertTrue("v10 delta 非空",page.changes.isNotEmpty())
+            openNative()
+            assertTrue("进入 shadow_import",NativeBindings.nativeBeginMigration(handle))
+            val seeded=NativeBindings.nativeSeedLegacyDeltaCheckpoint(
+                handle,1,0,System.currentTimeMillis()/1000)
+            assertEquals("ok|checkpoint=0",seeded)
+            assertEquals("ok|checkpoint=0",NativeBindings.nativeSeedLegacyDeltaCheckpoint(
+                handle,1,0,System.currentTimeMillis()/1000+1))
+            assertTrue("不同 baseline 必须拒绝",NativeBindings.nativeSeedLegacyDeltaCheckpoint(
+                handle,1,1,System.currentTimeMillis()/1000+2).startsWith("err|Rejected|"))
+            val result=LegacyDeltaApplier.applyNextPage(
+                room.openHelper.writableDatabase,handle,OWNER,1,0,100)
+            assertTrue("delta JNI 提交失败: $result",result is LegacyDeltaApplier.Result.Committed)
+            assertEquals("Native 成功后才 GC Room 日志",0,
+                room.legacyChangeLogDao().page(OWNER,0,100).size)
+            val raw=NativeBindings.nativeSearchMessages(handle,CONV,"n",100)
+            assertTrue("delta 消息及 FTS 已在同事务落库",raw!=null)
+            val input=ByteBuffer.wrap(raw!!).order(ByteOrder.LITTLE_ENDIAN)
+            assertEquals(0x4A545352,input.int);assertEquals(1,input.int);assertEquals(1,input.int)
+            // 同批重放必须幂等并返回当前 committed checkpoint。
+            val replay=NativeBindings.nativeSubmitLegacyDeltaBatch(handle,1,0,
+                MigrationExporter.encodeChanges(page.changes))
+            assertTrue("delta 重放幂等: $replay",replay.startsWith("ok|checkpoint="))
+            val now=System.currentTimeMillis()/1000
+            assertEquals("ok",NativeBindings.nativeAdvanceCutoverJournal(
+                handle,1,-1,0,page.highWater,10,"test-key","summary",now))
+            assertEquals("ok",NativeBindings.nativeAdvanceCutoverJournal(
+                handle,1,0,1,page.highWater,10,"test-key","summary",now+1))
+            val journal=CutoverRecoverySelector.parseDb(
+                NativeBindings.nativeGetCutoverJournal(handle))
+            assertTrue("journal 应为 PREPARED: $journal",
+                journal?.present==true&&journal.state==1&&journal.epoch==1L)
+            assertTrue("禁止跳过 NO_WRITE",NativeBindings.nativeAdvanceCutoverJournal(
+                handle,1,1,3,page.highWater,10,"test-key","summary",now+2)
+                .startsWith("err|Rejected|"))
+        } finally {
+            room.close()
+            closeNative()
+        }
+    }
+
+    @Test
+    fun cutoverCoordinator_freezesLegacyAndCommitsNoWrite() = runBlocking {
+        val room=Room.inMemoryDatabaseBuilder(context,AppDatabase::class.java)
+            .allowMainThreadQueries().build()
+        val sdk=JitongSdk()
+        val mirror=CutoverMirrorStore(context)
+        val cutoverDir=File(context.filesDir,"cutover_coordinator_native").apply {
+            deleteRecursively();mkdirs()
+        }
+        mirror.clearExplicitly()
+        try {
+            AppDatabase.installChangeLogTriggers(room.openHelper.writableDatabase)
+            AppDatabase.installWriteFenceTriggers(room.openHelper.writableDatabase)
+            repeat(3){index->
+                room.messageDao().insertWithFts(MessageEntity(ownerId=OWNER,msgId="cut-$index",
+                    conversationId=CONV,peerId=PEER.toInt(),fromMe=true,type=0,
+                    content="切换$index",ts=100L+index,seq=index.toLong()+1,status=1))
+            }
+            room.conversationDao().insertIgnore(
+                ConversationEntity(CONV,OWNER,PEER.toInt(),"切换2",102,0))
+            assertTrue(sdk.start("im.example.com"))
+            assertTrue(sdk.openAccountDatabase(OWNER,cutoverDir.absolutePath,bridge))
+            val result=CutoverMigrationCoordinator(sdk,mirror)
+                .execute(room.openHelper.writableDatabase,OWNER,77,
+                    CutoverMigrationCoordinator.LegacyQuiescence {
+                        true // 本用例无 Legacy Socket 或后台 writer；生产端必须真实 stop+drain。
+                    })
+            assertTrue("cutover 应提交: $result",
+                result is CutoverMigrationCoordinator.Result.Committed)
+            val journal=CutoverRecoverySelector.parseDb(sdk.getCutoverJournal())
+            assertEquals(2,journal?.state)
+            val mirrorEvidence=mirror.read()
+            assertTrue(mirrorEvidence is CutoverMirrorStore.ReadResult.Valid)
+            assertEquals(CutoverRecoverySelector.Action.Native,CutoverRecoverySelector.resolve(
+                OWNER.toLong(),journal,mirrorEvidence,nativeExists=true,nativeLoadable=true))
+            assertTrue("NO_WRITE 后旧 writer 必须保持冻结",runCatching {
+                room.messageDao().insertWithFts(MessageEntity(ownerId=OWNER,msgId="too-late",
+                    conversationId=CONV,peerId=PEER.toInt(),fromMe=true,type=0,
+                    content="late",ts=999,seq=99,status=1))
+            }.isFailure)
+        } finally {
+            sdk.stop();room.close();mirror.clearExplicitly();cutoverDir.deleteRecursively()
         }
     }
 }

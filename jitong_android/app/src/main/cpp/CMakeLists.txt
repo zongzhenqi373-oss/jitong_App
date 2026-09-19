@@ -80,7 +80,7 @@ find_package(OpenSSL REQUIRED)
 set(CLIENT_CORE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(CLIENT_CORE_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(CLIENT_CORE_WITH_SQLITE OFF CACHE BOOL "" FORCE)   # 明文系统 SQLite：Android 上保持关闭
-set(CLIENT_CORE_WITH_MEDIA  OFF CACHE BOOL "" FORCE)   # P1 首阶段关闭，P10 再开
+set(CLIENT_CORE_WITH_MEDIA  ON CACHE BOOL "" FORCE)    # P7 全量切换：Native HTTPS 媒体上传/下载
 # P6-T01：C++ SQLCipher 数据底座。Android 走「方案 A」——链接 Room 自带 AAR 的
 # libsqlcipher.so（4.6.1），零体积增量、无双库符号冲突。详见
 # outputs/kernel-round5-encryption-note.md 的 S0 决策记录。
@@ -106,6 +106,7 @@ add_library(jitong_kernel SHARED
     im_auth_jni.cpp
     im_db_jni.cpp
     im_runtime_jni.cpp
+    im_media_jni.cpp
     jni_auth_platform.cpp
     jni_db_key_bridge.cpp
     native_sdk_handle.cpp

@@ -1,10 +1,13 @@
-package com.jitong.im.net
+package com.jitong.im.util
 
 import java.security.MessageDigest
 
 /**
  * SHA-256 小写十六进制，与 C++ 端 im::sha256Hex（protocol/sha256.h）输出一致。
  * 对齐 QQNT：密码绝不原文上链路，客户端先哈希一次，服务端再加盐二次哈希存库。
+ *
+ * 位于 util（非 net）：Native 分支（NativeKernelHost 等）也需要密码哈希，
+ * 但不允许依赖 Legacy 网络包（由 verifyNativeUiDependencies 静态门禁保证）。
  */
 fun sha256Hex(input: String): String {
     val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))

@@ -193,3 +193,68 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.1")
 }
+
+// ---------------------------------------------------------------------------
+// 静态依赖门禁（P7-G8）：编译期保证「薄 UI 厚内核」边界不被悄悄突破。
+//
+// 规则 1（Native 纯净性）：任何文件名以 Native 开头的 Kotlin 文件
+//   （ui/Native*.kt、core/Native*.kt）禁止 import Legacy 网络/存储/旧 UI 符号。
+// 规则 2（Room writer 枚举）：`com.jitong.im.data.db` 的 import 只允许出现在
+//   白名单文件；新增 Room 引用必须显式改白名单并说明理由。
+// 规则 3（Legacy 网络入口枚举）：`com.jitong.im.net.*` 的 import 只允许出现在
+//   白名单文件，防止 Native 分支或新页面绕过内核直连 Socket/HTTP。
+// ---------------------------------------------------------------------------
+val nativeUiForbiddenImports = listOf(
+    "com.jitong.im.data.db",
+    "com.jitong.im.data.ChatStore",
+    "com.jitong.im.net.",
+    "com.jitong.im.ui.MainViewModel",
+)
+val roomWriterAllowlist = setOf(
+    "data/ChatStore.kt",      // Legacy 唯一 Room 写网关
+    "data/ColdStartCutoverRunner.kt", // 冷启动迁移专用：只读旧库快照，并由协调器建立停写闸门
+    "ui/MainViewModel.kt",    // Legacy 分支 UI（cutover 完成后随 Legacy 一起下线）
+)
+val legacyNetAllowlist = setOf(
+    "ui/MainViewModel.kt",
+    "ui/FriendListScreen.kt",
+)
+
+val verifyNativeUiDependencies = tasks.register("verifyNativeUiDependencies") {
+    group = "verification"
+    description = "静态依赖门禁：Native 薄 UI 纯净性 + Room writer / Legacy 网络入口枚举"
+    val ktSources = fileTree("src/main/java") { include("**/*.kt") }
+    inputs.files(ktSources)
+    doLast {
+        val violations = mutableListOf<String>()
+        ktSources.files.forEach { file ->
+            val rel = file.relativeTo(projectDir).invariantSeparatorsPath
+                .removePrefix("src/main/java/com/jitong/im/")
+            val isNative = file.name.startsWith("Native")
+            file.useLines { lines ->
+                lines.forEachIndexed { index, line ->
+                    val import = line.trim().takeIf { it.startsWith("import ") } ?: return@forEachIndexed
+                    if (isNative && nativeUiForbiddenImports.any { import.startsWith("import $it") }) {
+                        violations += "$rel:${index + 1}: Native 文件禁止依赖 Legacy 符号 -> $import"
+                    }
+                    if (import.startsWith("import com.jitong.im.data.db.") &&
+                        !rel.startsWith("data/db/") && rel !in roomWriterAllowlist) {
+                        violations += "$rel:${index + 1}: Room writer 未在白名单（roomWriterAllowlist）-> $import"
+                    }
+                    if (import.startsWith("import com.jitong.im.net.") &&
+                        !rel.startsWith("net/") && rel !in legacyNetAllowlist) {
+                        violations += "$rel:${index + 1}: Legacy 网络入口未在白名单（legacyNetAllowlist）-> $import"
+                    }
+                }
+            }
+        }
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "静态依赖门禁失败（${violations.size} 处）：\n" + violations.joinToString("\n"),
+            )
+        }
+        logger.lifecycle("静态依赖门禁通过：扫描 ${ktSources.files.size} 个 Kotlin 文件")
+    }
+}
+
+tasks.named("preBuild") { dependsOn(verifyNativeUiDependencies) }

@@ -290,6 +290,47 @@ bool Database::open(const std::string& dbPath, int poolSize)
         "ON auth_refresh_history(family_id);"
         //建立文件id索引
         "CREATE INDEX IF NOT EXISTS idx_msg_file_id ON messages(file_id);"
+        // ---------------- 分片上传会话（断点续传） ----------------
+        // 会话绑定上传人/设备/接收人/摘要/大小，upload_id 不是授权凭证。
+        "CREATE TABLE IF NOT EXISTS upload_sessions("
+        "  upload_id TEXT PRIMARY KEY,"
+        "  uploader_id INTEGER NOT NULL,"
+        "  device_id TEXT NOT NULL,"
+        "  receiver_id INTEGER NOT NULL,"
+        "  file_name TEXT NOT NULL,"
+        "  file_size INTEGER NOT NULL,"
+        "  sha256 TEXT NOT NULL,"
+        "  content_type TEXT NOT NULL DEFAULT '',"
+        "  is_image INTEGER NOT NULL DEFAULT 0,"
+        "  chunk_size INTEGER NOT NULL,"
+        "  chunk_count INTEGER NOT NULL,"
+        "  expires_at INTEGER NOT NULL,"
+        "  state TEXT NOT NULL DEFAULT 'open'," // open/finalized/cancelled
+        "  file_id TEXT NOT NULL DEFAULT '',"   // finalize 后回填，重试幂等
+        "  tmp_path TEXT NOT NULL,"
+        "  created_at INTEGER NOT NULL"
+        ");"
+        // 同设备同人同文件重试时复用 open 会话
+        "CREATE INDEX IF NOT EXISTS idx_upload_session_reuse "
+        "ON upload_sessions(uploader_id,device_id,receiver_id,sha256,file_size,state);"
+        // 已完成分片（持久化，重启恢复的事实源）；重复片靠主键+摘要比对判幂等
+        "CREATE TABLE IF NOT EXISTS upload_chunks("
+        "  upload_id TEXT NOT NULL,"
+        "  chunk_index INTEGER NOT NULL,"
+        "  chunk_size INTEGER NOT NULL,"
+        "  sha256 TEXT NOT NULL,"
+        "  created_at INTEGER NOT NULL,"
+        "  PRIMARY KEY(upload_id, chunk_index)"
+        ");"
+        // 内容寻址媒体对象索引：finalize 即登记，秒传不再依赖消息已发送
+        "CREATE TABLE IF NOT EXISTS media_objects("
+        "  sha256 TEXT NOT NULL,"
+        "  size INTEGER NOT NULL,"
+        "  path TEXT NOT NULL,"
+        "  content_type TEXT NOT NULL DEFAULT '',"
+        "  created_at INTEGER NOT NULL,"
+        "  PRIMARY KEY(sha256, size)"
+        ");"
     );
     if (!schemaOk) return false;
     // 兼容旧数据库；重复执行时 duplicate column 错误可安全忽略。
@@ -1216,6 +1257,30 @@ bool Database::findMediaObject(const std::string& sha256, std::int64_t size, Med
     if (sha256.size() != 64 || size <= 0) return false;
     Conn& c = acquire();
     std::lock_guard<std::mutex> lock(c.mtx);
+    // 先查 media_objects（finalize 即登记的内容寻址索引），再回退 messages（旧数据）。
+    {
+        sqlite3_stmt* st = nullptr;
+        const char* sql =
+            "SELECT path, content_type FROM media_objects WHERE sha256=? AND size=? LIMIT 1;";
+        if (sqlite3_prepare_v2(c.db, sql, -1, &st, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(st, 1, sha256.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(st, 2, size);
+            if (sqlite3_step(st) == SQLITE_ROW) {
+                const unsigned char* path = sqlite3_column_text(st, 0);
+                const unsigned char* type = sqlite3_column_text(st, 1);
+                out.path = path ? reinterpret_cast<const char*>(path) : "";
+                out.contentType = type ? reinterpret_cast<const char*>(type)
+                                       : "application/octet-stream";
+                out.sha256 = sha256;
+                out.size = size;
+                sqlite3_finalize(st);
+                std::error_code ec;
+                if (!out.path.empty() && std::filesystem::exists(out.path, ec)) return true;
+            } else {
+                sqlite3_finalize(st);
+            }
+        }
+    }
     sqlite3_stmt* st = nullptr;
     const char* sql =
         "SELECT CASE WHEN sha256=? THEN media_path WHEN thumbnail_sha256=? THEN thumbnail_path ELSE large_thumbnail_path END, "
@@ -1246,6 +1311,303 @@ bool Database::findMediaObject(const std::string& sha256, std::int64_t size, Med
     }
     sqlite3_finalize(st);
     return ok;
+}
+
+// ---------------- 分片上传会话 ----------------
+
+namespace {
+
+Database::UploadSession rowToUploadSession(sqlite3_stmt* st)
+{
+    auto text = [&](int i) {
+        const unsigned char* p = sqlite3_column_text(st, i);
+        return p ? std::string(reinterpret_cast<const char*>(p)) : std::string();
+    };
+    Database::UploadSession s;
+    s.uploadId = text(0);
+    s.uploaderId = sqlite3_column_int(st, 1);
+    s.deviceId = text(2);
+    s.receiverId = sqlite3_column_int(st, 3);
+    s.fileName = text(4);
+    s.fileSize = sqlite3_column_int64(st, 5);
+    s.sha256 = text(6);
+    s.contentType = text(7);
+    s.isImage = sqlite3_column_int(st, 8) != 0;
+    s.chunkSize = sqlite3_column_int64(st, 9);
+    s.chunkCount = sqlite3_column_int(st, 10);
+    s.expiresAt = sqlite3_column_int64(st, 11);
+    s.state = text(12);
+    s.fileId = text(13);
+    s.tmpPath = text(14);
+    s.createdAt = sqlite3_column_int64(st, 15);
+    return s;
+}
+
+const char* kUploadSessionCols =
+    "upload_id,uploader_id,device_id,receiver_id,file_name,file_size,sha256,content_type,"
+    "is_image,chunk_size,chunk_count,expires_at,state,file_id,tmp_path,created_at";
+
+} // namespace
+
+bool Database::createUploadSession(const UploadSession& s)
+{
+    if (s.uploadId.empty() || s.uploaderId <= 0 || s.receiverId <= 0 || s.fileSize <= 0 ||
+        s.chunkSize <= 0 || s.chunkCount <= 0 || s.sha256.size() != 64) return false;
+    return m_writeQueue.submit([&](sqlite3* db) -> bool {
+        sqlite3_stmt* st = nullptr;
+        const std::string sql = std::string("INSERT INTO upload_sessions(") + kUploadSessionCols +
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'open','',?,?);";
+        if (sqlite3_prepare_v2(db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) return false;
+        // 列序：1..12 + tmp_path(13) + created_at(14)；state/file_id 用字面量
+        sqlite3_bind_text(st, 1, s.uploadId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(st, 2, s.uploaderId);
+        sqlite3_bind_text(st, 3, s.deviceId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(st, 4, s.receiverId);
+        sqlite3_bind_text(st, 5, s.fileName.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 6, s.fileSize);
+        sqlite3_bind_text(st, 7, s.sha256.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 8, s.contentType.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(st, 9, s.isImage ? 1 : 0);
+        sqlite3_bind_int64(st, 10, s.chunkSize);
+        sqlite3_bind_int(st, 11, s.chunkCount);
+        sqlite3_bind_int64(st, 12, s.expiresAt);
+        sqlite3_bind_text(st, 13, s.tmpPath.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 14, s.createdAt);
+        const bool ok = sqlite3_step(st) == SQLITE_DONE;
+        sqlite3_finalize(st);
+        return ok;
+    });
+}
+
+bool Database::findOpenUploadSession(int uploaderId, const std::string& deviceId, int receiverId,
+                                     const std::string& sha256, std::int64_t size,
+                                     UploadSession& out)
+{
+    if (uploaderId <= 0 || receiverId <= 0 || sha256.size() != 64 || size <= 0) return false;
+    Conn& c = acquire();
+    std::lock_guard<std::mutex> lock(c.mtx);
+    sqlite3_stmt* st = nullptr;
+    const std::string sql = std::string("SELECT ") + kUploadSessionCols +
+        " FROM upload_sessions WHERE uploader_id=? AND device_id=? AND receiver_id=?"
+        " AND sha256=? AND file_size=? AND state='open'"
+        " ORDER BY created_at DESC LIMIT 1;";
+    if (sqlite3_prepare_v2(c.db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(st, 1, uploaderId);
+    sqlite3_bind_text(st, 2, deviceId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(st, 3, receiverId);
+    sqlite3_bind_text(st, 4, sha256.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 5, size);
+    const bool found = sqlite3_step(st) == SQLITE_ROW;
+    if (found) out = rowToUploadSession(st);
+    sqlite3_finalize(st);
+    return found;
+}
+
+bool Database::getUploadSession(const std::string& uploadId, UploadSession& out)
+{
+    if (uploadId.empty()) return false;
+    Conn& c = acquire();
+    std::lock_guard<std::mutex> lock(c.mtx);
+    sqlite3_stmt* st = nullptr;
+    const std::string sql = std::string("SELECT ") + kUploadSessionCols +
+        " FROM upload_sessions WHERE upload_id=? LIMIT 1;";
+    if (sqlite3_prepare_v2(c.db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(st, 1, uploadId.c_str(), -1, SQLITE_TRANSIENT);
+    const bool found = sqlite3_step(st) == SQLITE_ROW;
+    if (found) out = rowToUploadSession(st);
+    sqlite3_finalize(st);
+    return found;
+}
+
+Database::ChunkStoreResult Database::storeUploadChunk(const std::string& uploadId, int index,
+                                                      std::int64_t size,
+                                                      const std::string& sha256)
+{
+    if (uploadId.empty() || index < 0 || size <= 0 || sha256.size() != 64)
+        return ChunkStoreResult::Rejected;
+    ChunkStoreResult result = ChunkStoreResult::Rejected;
+    m_writeQueue.submit([&](sqlite3* db) -> bool {
+        // 会话状态校验与分片写入在同一写事务，避免校验后状态被并发改变。
+        sqlite3_stmt* st = nullptr;
+        const char* ssql =
+            "SELECT state, expires_at FROM upload_sessions WHERE upload_id=? LIMIT 1;";
+        if (sqlite3_prepare_v2(db, ssql, -1, &st, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_text(st, 1, uploadId.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(st) != SQLITE_ROW) { sqlite3_finalize(st); return true; }
+        const std::string state = reinterpret_cast<const char*>(sqlite3_column_text(st, 0));
+        const std::int64_t expiresAt = sqlite3_column_int64(st, 1);
+        sqlite3_finalize(st);
+        if (state != "open" || expiresAt < static_cast<std::int64_t>(std::time(nullptr)))
+            return true;
+
+        // 已存在：同内容幂等，不同内容拒绝
+        const char* esql = "SELECT sha256 FROM upload_chunks WHERE upload_id=? AND chunk_index=?;";
+        if (sqlite3_prepare_v2(db, esql, -1, &st, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_text(st, 1, uploadId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(st, 2, index);
+        if (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char* p = sqlite3_column_text(st, 0);
+            const std::string existing = p ? reinterpret_cast<const char*>(p) : "";
+            sqlite3_finalize(st);
+            result = existing == sha256 ? ChunkStoreResult::Duplicate : ChunkStoreResult::Conflict;
+            return true;
+        }
+        sqlite3_finalize(st);
+
+        const char* isql =
+            "INSERT INTO upload_chunks(upload_id,chunk_index,chunk_size,sha256,created_at) "
+            "VALUES(?,?,?,?,?);";
+        if (sqlite3_prepare_v2(db, isql, -1, &st, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_text(st, 1, uploadId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(st, 2, index);
+        sqlite3_bind_int64(st, 3, size);
+        sqlite3_bind_text(st, 4, sha256.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 5, static_cast<sqlite3_int64>(std::time(nullptr)));
+        const bool ok = sqlite3_step(st) == SQLITE_DONE;
+        sqlite3_finalize(st);
+        if (!ok) return false;
+        result = ChunkStoreResult::Stored;
+        return true;
+    });
+    return result;
+}
+
+bool Database::listUploadChunkIndices(const std::string& uploadId, std::vector<int>& out)
+{
+    out.clear();
+    if (uploadId.empty()) return false;
+    Conn& c = acquire();
+    std::lock_guard<std::mutex> lock(c.mtx);
+    sqlite3_stmt* st = nullptr;
+    const char* sql =
+        "SELECT chunk_index FROM upload_chunks WHERE upload_id=? ORDER BY chunk_index;";
+    if (sqlite3_prepare_v2(c.db, sql, -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(st, 1, uploadId.c_str(), -1, SQLITE_TRANSIENT);
+    while (sqlite3_step(st) == SQLITE_ROW) out.push_back(sqlite3_column_int(st, 0));
+    sqlite3_finalize(st);
+    return true;
+}
+
+bool Database::finalizeUploadSession(const std::string& uploadId, const std::string& fileId,
+                                     std::string* existingFileId)
+{
+    if (existingFileId) existingFileId->clear();
+    if (uploadId.empty() || fileId.empty()) return false;
+    bool ok = false;
+    m_writeQueue.submit([&](sqlite3* db) -> bool {
+        sqlite3_stmt* st = nullptr;
+        const char* ssql = "SELECT state, file_id FROM upload_sessions WHERE upload_id=? LIMIT 1;";
+        if (sqlite3_prepare_v2(db, ssql, -1, &st, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_text(st, 1, uploadId.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(st) != SQLITE_ROW) { sqlite3_finalize(st); return true; }
+        const unsigned char* sp = sqlite3_column_text(st, 0);
+        const unsigned char* fp = sqlite3_column_text(st, 1);
+        const std::string state = sp ? reinterpret_cast<const char*>(sp) : "";
+        const std::string existing = fp ? reinterpret_cast<const char*>(fp) : "";
+        sqlite3_finalize(st);
+        if (state == "finalized") {
+            if (existingFileId) *existingFileId = existing;
+            ok = true; // 幂等重试：返回原 file_id
+            return true;
+        }
+        if (state != "open") return true;
+
+        const char* usql =
+            "UPDATE upload_sessions SET state='finalized', file_id=? WHERE upload_id=? AND state='open';";
+        if (sqlite3_prepare_v2(db, usql, -1, &st, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_text(st, 1, fileId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, uploadId.c_str(), -1, SQLITE_TRANSIENT);
+        const bool stepped = sqlite3_step(st) == SQLITE_DONE;
+        sqlite3_finalize(st);
+        if (!stepped) return false;
+        ok = sqlite3_changes(db) == 1;
+        return true;
+    });
+    return ok;
+}
+
+bool Database::cancelUploadSession(const std::string& uploadId)
+{
+    if (uploadId.empty()) return false;
+    bool ok = false;
+    m_writeQueue.submit([&](sqlite3* db) -> bool {
+        sqlite3_stmt* st = nullptr;
+        const char* ssql = "SELECT state FROM upload_sessions WHERE upload_id=? LIMIT 1;";
+        if (sqlite3_prepare_v2(db, ssql, -1, &st, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_text(st, 1, uploadId.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(st) != SQLITE_ROW) { sqlite3_finalize(st); return true; }
+        const unsigned char* sp = sqlite3_column_text(st, 0);
+        const std::string state = sp ? reinterpret_cast<const char*>(sp) : "";
+        sqlite3_finalize(st);
+        if (state == "cancelled") { ok = true; return true; } // 幂等
+        if (state != "open") return true;
+        const char* usql =
+            "UPDATE upload_sessions SET state='cancelled' WHERE upload_id=? AND state='open';";
+        if (sqlite3_prepare_v2(db, usql, -1, &st, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_text(st, 1, uploadId.c_str(), -1, SQLITE_TRANSIENT);
+        const bool stepped = sqlite3_step(st) == SQLITE_DONE;
+        sqlite3_finalize(st);
+        if (!stepped) return false;
+        ok = sqlite3_changes(db) == 1;
+        return true;
+    });
+    return ok;
+}
+
+bool Database::listExpiredUploadSessions(std::int64_t now, std::vector<UploadSession>& out)
+{
+    out.clear();
+    Conn& c = acquire();
+    std::lock_guard<std::mutex> lock(c.mtx);
+    sqlite3_stmt* st = nullptr;
+    const std::string sql = std::string("SELECT ") + kUploadSessionCols +
+        " FROM upload_sessions WHERE expires_at<? AND state IN('open','cancelled');";
+    if (sqlite3_prepare_v2(c.db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int64(st, 1, now);
+    while (sqlite3_step(st) == SQLITE_ROW) out.push_back(rowToUploadSession(st));
+    sqlite3_finalize(st);
+    return true;
+}
+
+bool Database::deleteUploadSession(const std::string& uploadId)
+{
+    if (uploadId.empty()) return false;
+    return m_writeQueue.submit([&](sqlite3* db) -> bool {
+        sqlite3_stmt* st = nullptr;
+        const char* d1 = "DELETE FROM upload_chunks WHERE upload_id=?;";
+        if (sqlite3_prepare_v2(db, d1, -1, &st, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_text(st, 1, uploadId.c_str(), -1, SQLITE_TRANSIENT);
+        bool ok = sqlite3_step(st) == SQLITE_DONE;
+        sqlite3_finalize(st);
+        if (!ok) return false;
+        const char* d2 = "DELETE FROM upload_sessions WHERE upload_id=?;";
+        if (sqlite3_prepare_v2(db, d2, -1, &st, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_text(st, 1, uploadId.c_str(), -1, SQLITE_TRANSIENT);
+        ok = sqlite3_step(st) == SQLITE_DONE;
+        sqlite3_finalize(st);
+        return ok;
+    });
+}
+
+bool Database::registerMediaObject(const std::string& sha256, std::int64_t size,
+                                   const std::string& path, const std::string& contentType)
+{
+    if (sha256.size() != 64 || size <= 0 || path.empty()) return false;
+    return m_writeQueue.submit([&](sqlite3* db) -> bool {
+        sqlite3_stmt* st = nullptr;
+        const char* sql =
+            "INSERT OR IGNORE INTO media_objects(sha256,size,path,content_type,created_at) "
+            "VALUES(?,?,?,?,?);";
+        if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_text(st, 1, sha256.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 2, size);
+        sqlite3_bind_text(st, 3, path.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 4, contentType.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 5, static_cast<sqlite3_int64>(std::time(nullptr)));
+        const bool ok = sqlite3_step(st) == SQLITE_DONE;
+        sqlite3_finalize(st);
+        return ok;
+    });
 }
 
 bool Database::createAuthSession(

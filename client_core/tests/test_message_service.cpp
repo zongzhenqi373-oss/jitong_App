@@ -191,7 +191,7 @@ int main()
     check(successes == 8, "8 个 Service 并发发号均提交成功");
     check(queryInt(db, "SELECT COUNT(*)-COUNT(DISTINCT local_order) FROM outbox") == 0,
           "Outbox 无重复 local_order");
-    check(queryInt(db, "PRAGMA user_version") == 6, "库已升级到 v6");
+    check(queryInt(db, "PRAGMA user_version") == 8, "库已升级到 v8");
     {
         std::vector<OutboxAttempt> leased,other;
         check(repo.claimOutbox(kOwner,100,30,64,&leased,&err) && !leased.empty(),"领取持久化 Outbox " + err);

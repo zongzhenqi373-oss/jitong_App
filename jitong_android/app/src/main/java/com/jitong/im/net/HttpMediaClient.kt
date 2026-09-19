@@ -1,6 +1,7 @@
 package com.jitong.im.net
 
 import com.jitong.im.data.Prefs
+import com.jitong.im.util.sha256HexOfStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull

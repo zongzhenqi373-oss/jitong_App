@@ -154,6 +154,9 @@ if(IM_SERVER_BUILD_TESTS)
         VERBATIM
     )
     set(CLIENT_CORE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    # e2e 需要 NativeDatabase/NativeRepository/MediaService（均在 SQLCIPHER 组件内），
+    # 桌面走 SQLCipher amalgamation，与 Android 生产语义一致。
+    set(CLIENT_CORE_WITH_SQLCIPHER ON CACHE BOOL "" FORCE)
     if(NOT TARGET client_core)
         add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../client_core ${CMAKE_BINARY_DIR}/client_core)
     endif()
@@ -161,6 +164,7 @@ if(IM_SERVER_BUILD_TESTS)
     add_executable(test_e2e tests/test_e2e.cpp)
     add_dependencies(test_e2e test_tls_material)
     target_compile_definitions(test_e2e PRIVATE
+        CPPHTTPLIB_OPENSSL_SUPPORT
         IM_SERVER_TEST_CERT="${TEST_TLS_CERT}"
         IM_SERVER_TEST_KEY="${TEST_TLS_KEY}"
         IM_SERVER_TEST_APP_IDENTITY_KEY="${TEST_APP_IDENTITY_KEY}"
@@ -197,6 +201,32 @@ if(IM_SERVER_BUILD_TESTS)
     add_executable(test_database_concurrency tests/test_database_concurrency.cpp)
     target_link_libraries(test_database_concurrency PRIVATE im_server_lib)
     add_test(NAME database_concurrency COMMAND test_database_concurrency)
+
+    # 分片上传协议（秒传优先/分片幂等/断点续传/取消/GC）
+    add_executable(test_chunked_upload tests/test_chunked_upload.cpp)
+    add_dependencies(test_chunked_upload test_tls_material)
+    target_compile_definitions(test_chunked_upload PRIVATE
+        CPPHTTPLIB_OPENSSL_SUPPORT
+        IM_SERVER_TEST_CERT="${TEST_TLS_CERT}"
+        IM_SERVER_TEST_KEY="${TEST_TLS_KEY}"
+        IM_SERVER_TEST_APP_IDENTITY_KEY="${TEST_APP_IDENTITY_KEY}"
+    )
+    target_link_libraries(test_chunked_upload PRIVATE im_server_lib)
+    add_test(NAME chunked_upload COMMAND test_chunked_upload)
+    set_tests_properties(chunked_upload PROPERTIES TIMEOUT 120)
+
+    # 媒体断点续传真实链路（真服务端+真登录+生产传输+Native 编排）
+    add_executable(test_media_resume_e2e tests/test_media_resume_e2e.cpp)
+    add_dependencies(test_media_resume_e2e test_tls_material)
+    target_compile_definitions(test_media_resume_e2e PRIVATE
+        CPPHTTPLIB_OPENSSL_SUPPORT
+        IM_SERVER_TEST_CERT="${TEST_TLS_CERT}"
+        IM_SERVER_TEST_KEY="${TEST_TLS_KEY}"
+        IM_SERVER_TEST_APP_IDENTITY_KEY="${TEST_APP_IDENTITY_KEY}"
+    )
+    target_link_libraries(test_media_resume_e2e PRIVATE im_server_lib client_core)
+    add_test(NAME media_resume_e2e COMMAND test_media_resume_e2e)
+    set_tests_properties(media_resume_e2e PROPERTIES TIMEOUT 120)
 
     add_executable(test_token_service tests/test_token_service.cpp)
     target_link_libraries(test_token_service PRIVATE im_server_lib)

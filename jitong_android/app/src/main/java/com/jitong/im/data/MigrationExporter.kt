@@ -34,6 +34,71 @@ object MigrationExporter {
         val lastId: Long,
     )
 
+    data class Change(
+        val changeSeq: Long,
+        val ownerId: Int,
+        val entityType: String,
+        val entityKey: String,
+        val operation: String,
+        val changedAt: Long,
+        val payloadVersion: Int,
+        val payload: String,
+    )
+
+    data class ChangePage(
+        val changes: List<Change>,
+        val highWater: Long,
+        val contiguous: Boolean,
+    )
+
+    /**
+     * 读取 snapshot 建立之后发生的全局 delta。序列缺口不会被静默略过：调用方必须停止
+     * cutover 并从最后确认 checkpoint 重读，不能把 conversation seq 当迁移水位。
+     */
+    fun nextChanges(
+        db: SupportSQLiteDatabase,
+        ownerId: Int,
+        afterExclusive: Long,
+        limit: Int = BATCH_SIZE,
+    ): ChangePage {
+        require(ownerId > 0 && afterExclusive >= 0 && limit in 1..BATCH_SIZE)
+        val rows = ArrayList<Change>(limit)
+        db.query("""SELECT changeSeq,ownerId,entityType,entityKey,operation,changedAt,
+            payloadVersion,payload FROM legacy_change_log
+            WHERE ownerId=? AND changeSeq>? ORDER BY changeSeq ASC LIMIT ?""",
+            arrayOf(ownerId, afterExclusive, limit)).use { c ->
+            while (c.moveToNext()) {
+                rows += Change(c.getLong(0), c.getInt(1), c.getString(2), c.getString(3),
+                    c.getString(4), c.getLong(5), c.getInt(6), c.getString(7))
+            }
+        }
+        val highWater = db.query(
+            "SELECT COALESCE(MAX(changeSeq),0) FROM legacy_change_log WHERE ownerId=?",
+            arrayOf(ownerId),
+        ).use { c -> if (c.moveToFirst()) c.getLong(0) else 0L }
+        // 全局 AUTOINCREMENT 会被其它 owner 穿插，因此只要求本页严格递增；不能要求 +1。
+        val contiguous = rows.zipWithNext().all { (a, b) -> b.changeSeq > a.changeSeq } &&
+            rows.firstOrNull()?.changeSeq?.let { it > afterExclusive } != false
+        return ChangePage(rows, highWater, contiguous)
+    }
+
+    /** JTDL v1：严格编码已固化快照，不回读 messages/conversations 当前行。 */
+    fun encodeChanges(changes: List<Change>): ByteArray {
+        require(changes.size <= BATCH_SIZE)
+        val bos = ByteArrayOutputStream()
+        fun putI32(v: Int) = bos.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(v).array())
+        fun putI64(v: Long) = bos.write(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(v).array())
+        fun putStr(v: String) { val b = v.toByteArray(Charsets.UTF_8); putI32(b.size); bos.write(b) }
+        putI32(0x4A54444C) // JTDL
+        putI32(1)
+        putI32(changes.size)
+        changes.forEach { c ->
+            putI64(c.changeSeq); putI32(c.ownerId); putStr(c.entityType); putStr(c.entityKey)
+            putStr(c.operation); putI64(c.changedAt); putI32(c.payloadVersion); putStr(c.payload)
+        }
+        return bos.toByteArray()
+    }
+
     /**
      * 从 [fromIdExclusive] 之后取出最多 [limit] 条消息并编码。
      * @return null 表示没有更多数据
@@ -42,7 +107,7 @@ object MigrationExporter {
     {
         // 消息与其 FTS 行按 msgId 左连接，一次带走 pinyin/initials + 全部缩略图元数据
         val sql = """
-            SELECT m.id, m.msgId, m.conversationId, m.peerId, m.seq, m.ts, m.localOrder,
+            SELECT m.id, m.msgId, m.conversationId, m.peerId, m.seq, m.ts, m.id AS localOrder,
                    m.fromMe, m.type, m.content, m.status, m.mediaPath, m.imgW, m.imgH,
                    m.fileId, m.fileName, m.fileSize, m.contentType, m.sha256,
                    m.thumbnailFileId, m.thumbnailPath, m.thumbnailSize, m.thumbnailSha256,

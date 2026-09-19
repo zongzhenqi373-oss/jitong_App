@@ -3,6 +3,7 @@ package com.jitong.im.net
 import com.jitong.im.data.Prefs
 import com.jitong.im.data.crypto.TokenVault.TokenSession
 import com.jitong.im.data.crypto.DeviceIdentity
+import com.jitong.im.util.sha256Hex
 import im.proto.Im
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,8 +17,10 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.DataInputStream
 import java.net.InetSocketAddress
+import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
 
@@ -155,11 +158,16 @@ class ImClient {
     private var secureChannel: SecureChannel? = null
     private val writeLock = Mutex()
     private var heartbeatJob: kotlinx.coroutines.Job? = null
+    @Volatile private var readJob: kotlinx.coroutines.Job? = null
+    @Volatile private var cutoverFrozen = false
+    private val connecting = AtomicInteger(0)
 
     /** 建立 TCP 连接并启动读循环 + 心跳；成功返回 true */
     suspend fun connect(host: String, port: Int = Protocol.TCP_PORT): Boolean =
         withContext(Dispatchers.IO) {
+            if (cutoverFrozen) return@withContext false
             if (connected) return@withContext true
+            connecting.incrementAndGet()
             try {
                 val factory = SSLContext
                     .getDefault()
@@ -211,6 +219,11 @@ class ImClient {
                 )
 
                 val establishedChannel = SecureChannel.establish(sslSocket)
+                if (cutoverFrozen) {
+                    establishedChannel.destroy()
+                    sslSocket.close()
+                    return@withContext false
+                }
                 android.util.Log.i(
                     "IM_APP_SEC",
                     "应用层安全握手成功 version=${Protocol.APP_SECURITY_VERSION} " +
@@ -222,7 +235,7 @@ class ImClient {
                 connected = true
 
                 startHeartbeat()
-                scope.launch {
+                readJob = scope.launch {
                     readLoop(sslSocket)
                 }
 
@@ -235,8 +248,27 @@ class ImClient {
                 )
                 closeQuietly()
                 false
+            } finally {
+                connecting.decrementAndGet()
             }
         }
+
+    /**
+     * 单向 cutover 前停止旧连接：拒绝后续 connect，等待握手、读循环和心跳退出。
+     * 只证明网络侧已静默；Room 写入与媒体任务必须由上层另行排空后才能提交迁移。
+     */
+    suspend fun freezeNetworkForCutover(timeoutMs:Long=10_000):Boolean = withContext(Dispatchers.IO) {
+        cutoverFrozen = true
+        disconnect()
+        withTimeoutOrNull(timeoutMs) {
+            while (connecting.get() != 0) delay(10)
+            // 关闭并发握手在 freeze 检查之前刚建立的连接。
+            disconnect()
+            readJob?.join()
+            heartbeatJob?.join()
+            !connected && connecting.get() == 0
+        } ?: false
+    }
 
     suspend fun register(nick: String, tel: String, pass: String) {
         val rq = Im.RegisterRq.newBuilder()

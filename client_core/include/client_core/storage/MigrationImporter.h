@@ -99,6 +99,18 @@ struct MigrationConversation {
     std::int64_t unread = 0;
 };
 
+/** Room v10 触发器固化的一条严格增量事件。payload 是版本化 JSON 快照。 */
+struct LegacyDeltaChange {
+    std::int64_t changeSeq = 0;
+    std::int64_t ownerId = 0;
+    std::string entityType; // MESSAGE / CONVERSATION
+    std::string entityKey;
+    std::string operation;  // UPSERT / DELETE
+    std::int64_t changedAt = 0;
+    int payloadVersion = 0; // UPSERT=1；DELETE=0
+    std::string payload;
+};
+
 /**
  * 迁移开关三态（§24.7「disabled → shadow_import → verified」）。
  *
@@ -148,6 +160,25 @@ public:
 
     static bool readConversationCheckpoint(sqlite3* db, std::int64_t ownerId,
                                            std::string* checkpoint);
+
+    /**
+     * 严格应用 Room v10 delta。调用方必须已进入 Writer 事务；数据修改与
+     * migration_checkpoint(epoch,'legacy_delta') 在同一事务中提交。
+     */
+    static bool applyLegacyDeltaBatch(sqlite3* db, std::int64_t ownerId, std::int64_t epoch,
+                                      std::int64_t expectedAfter,
+                                      const std::vector<LegacyDeltaChange>& changes,
+                                      std::int64_t* committedCheckpoint,
+                                      std::string* err = nullptr);
+
+    /** 读取指定 epoch 的 legacy_delta checkpoint；无记录返回 0。 */
+    static bool readLegacyDeltaCheckpoint(sqlite3* db, std::int64_t epoch,
+                                           std::int64_t* checkpoint);
+
+    /** snapshot 开始前首次固化 delta baseline；相同值幂等，不同值拒绝。 */
+    static bool seedLegacyDeltaCheckpoint(sqlite3* db, std::int64_t epoch,
+                                          std::int64_t baseline, std::int64_t updatedAt,
+                                          std::string* err = nullptr);
 
     /** 统计当前库的实际摘要（用于对账）。 */
     static bool computeSummary(sqlite3* db, std::int64_t ownerId, MigrationSummary* out,

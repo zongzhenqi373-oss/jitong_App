@@ -10,6 +10,8 @@
 #endif
 
 #include <atomic>
+#include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
@@ -83,6 +85,24 @@ std::string extractJsonStringField(const std::string& json, const std::string& k
     if (end == std::string::npos) return "";
     return json.substr(pos, end - pos);
 }
+
+bool extractJsonIntField(const std::string& json, const std::string& key, std::int64_t& value)
+{
+    const auto pos = json.find("\"" + key + "\":");
+    if (pos == std::string::npos) return false;
+    const char* begin = json.data() + pos + key.size() + 3;
+    const auto result = std::from_chars(begin, json.data() + json.size(), value);
+    return result.ec == std::errc{};
+}
+
+bool safeMediaId(const std::string& id)
+{
+    return !id.empty() && id.size() <= 128 &&
+        std::all_of(id.begin(), id.end(), [](unsigned char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                   (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+        });
+}
 } // namespace
 
 ClientCore::ClientCore(ClientConfig config)
@@ -144,6 +164,10 @@ void ClientCore::sendAuthRaw(protType type, const std::string& payload)
     // 与业务帧同一发送路径：安全通道建立后自动加密为 1040。
     sendPacket(type, payload);
 }
+void ClientCore::setFriendProtocolSink(const std::shared_ptr<IFriendProtocolSink>& sink)
+{ std::lock_guard<std::mutex> lk(m_messageSinkMutex);m_friendSink=sink; }
+std::shared_ptr<IFriendProtocolSink> ClientCore::acquireFriendProtocolSink() const
+{ std::lock_guard<std::mutex> lk(m_messageSinkMutex);return m_friendSink.lock(); }
 
 // ---------------- 连接管理 ----------------
 
@@ -204,6 +228,8 @@ void ClientCore::initFunArr()
     m_dealFunArr[DEF_PROT_TOKEN_LOGIN_RS   - DEF_BASE] = &ClientCore::onTokenLoginRs;
     m_dealFunArr[DEF_PROT_TOKEN_REFRESH_RS - DEF_BASE] = &ClientCore::onRefreshTokenRs;
     m_dealFunArr[DEF_PROT_LOGOUT_RS        - DEF_BASE] = &ClientCore::onLogoutRs;
+    m_dealFunArr[DEF_PROT_FRIEND_REQUEST_LIST_RS-DEF_BASE]=&ClientCore::onFriendRequestListRs;
+    m_dealFunArr[DEF_PROT_DELETE_FRIEND_RS-DEF_BASE]=&ClientCore::onDeleteFriendRs;
 }
 
 void ClientCore::dispatchPacket(protType type, const char* payload, std::size_t len)
@@ -492,6 +518,19 @@ void ClientCore::answerAddFriend(int destId, const std::string& destNickUtf8, bo
     sendPacket(DEF_PROT_ADD_FRIEND_RS, rs.SerializeAsString());
 }
 
+void ClientCore::requestFriendRequests()
+{
+    im::proto::FriendRequestListRq rq;
+    sendPacket(DEF_PROT_FRIEND_REQUEST_LIST_RQ,rq.SerializeAsString());
+}
+
+void ClientCore::deleteFriend(int friendId)
+{
+    if(friendId<=0)return;
+    im::proto::DeleteFriendRq rq;rq.set_friend_id(friendId);
+    sendPacket(DEF_PROT_DELETE_FRIEND_RQ,rq.SerializeAsString());
+}
+
 void ClientCore::sendOfflineNotify()
 {
     im::proto::FriendOffline pkt;
@@ -518,9 +557,10 @@ void ClientCore::sendRoamMsgRq(int peerId, std::int64_t beforeSeq, int limit)
 
 #if defined(CLIENT_CORE_WITH_MEDIA)
 std::string ClientCore::uploadMedia(const std::string& localPath, int receiverId, bool isImage,
-                                    const MediaProgress& onProgress)
+                                    const MediaProgress& onProgress, const MediaCanceled& canceled)
 {
-    if (m_tlsServerName.empty() || m_httpPort == 0 || m_accessToken.empty()) return "";
+    if (m_tlsServerName.empty() || m_httpPort == 0 || m_accessToken.empty() ||
+        (canceled && canceled())) return "";
 
     std::ifstream ifs(localPath, std::ios::binary | std::ios::ate);
     if (!ifs) return "";
@@ -549,11 +589,61 @@ std::string ClientCore::uploadMedia(const std::string& localPath, int receiverId
     };
     const std::string contentType = isImage ? "image/jpeg" : "application/octet-stream";
 
+    // 与 Android Legacy 客户端同一套秒传协议：摘要只用于索引，命中后仍需
+    // 提交服务端随机指定的文件片段，证明本端确实持有原文件。
+    Sha256 digest;
+    std::vector<char> hashBuf(64 * 1024);
+    while (ifs) {
+        if (canceled && canceled()) return "";
+        ifs.read(hashBuf.data(), static_cast<std::streamsize>(hashBuf.size()));
+        const auto n = ifs.gcount();
+        if (n > 0) digest.update(hashBuf.data(), static_cast<std::size_t>(n));
+    }
+    if (ifs.bad()) return "";
+    static constexpr char hex[] = "0123456789abcdef";
+    std::string sha;
+    for (unsigned char b : digest.final()) { sha += hex[b >> 4]; sha += hex[b & 15]; }
+    ifs.clear();
+    ifs.seekg(0, std::ios::beg);
+    if (!ifs) return "";
+    if (canceled && canceled()) return "";
+
+    auto preflightHeaders = headers;
+    preflightHeaders.emplace("X-File-Size", std::to_string(size));
+    preflightHeaders.emplace("X-File-Sha256", sha);
+    auto preflight = cli.Post("/api/v1/upload/preflight", preflightHeaders, "", "application/octet-stream");
+    if (!preflight || preflight->status != 200) return "";
+    if (canceled && canceled()) return "";
+    if (preflight->body.find("\"hit\":true") != std::string::npos) {
+        const auto challengeId = extractJsonStringField(preflight->body, "challenge_id");
+        std::int64_t offset = -1, length = -1;
+        if (!safeMediaId(challengeId) ||
+            !extractJsonIntField(preflight->body, "offset", offset) ||
+            !extractJsonIntField(preflight->body, "length", length) ||
+            offset < 0 || length <= 0 || length > 64 * 1024 ||
+            offset > sizeSigned || length > sizeSigned - offset) return "";
+        std::string proof(static_cast<std::size_t>(length), '\0');
+        ifs.seekg(offset, std::ios::beg);
+        if (!ifs.read(proof.data(), length)) return "";
+        if (canceled && canceled()) return "";
+        auto proofResult = cli.Post("/api/v1/upload/proof/" + challengeId,
+            headers, proof, "application/octet-stream");
+        if ((canceled && canceled()) || !proofResult || proofResult->status != 200 ||
+            extractJsonStringField(proofResult->body, "sha256") != sha) return "";
+        std::int64_t provenSize = -1;
+        if (!extractJsonIntField(proofResult->body, "size", provenSize) || provenSize != sizeSigned) return "";
+        const auto id = extractJsonStringField(proofResult->body, "file_id");
+        if (onProgress) onProgress(sizeSigned, sizeSigned);
+        return safeMediaId(id) ? id : "";
+    }
+    if (preflight->body.find("\"hit\":false") == std::string::npos) return "";
+
     // 流式上传：边读本地文件边写 sink，不整体载入内存
-    auto provider = [&ifs](std::size_t /*offset*/, std::size_t length, httplib::DataSink& sink) -> bool {
+    auto provider = [&ifs, &canceled](std::size_t /*offset*/, std::size_t length, httplib::DataSink& sink) -> bool {
         std::vector<char> buf(64 * 1024);
         std::size_t remaining = length;
         while (remaining > 0 && ifs) {
+            if (canceled && canceled()) return false;
             const std::size_t chunk = std::min(remaining, buf.size());
             ifs.read(buf.data(), static_cast<std::streamsize>(chunk));
             const auto got = ifs.gcount();
@@ -561,26 +651,31 @@ std::string ClientCore::uploadMedia(const std::string& localPath, int receiverId
             if (!sink.write(buf.data(), static_cast<std::size_t>(got))) return false;
             remaining -= static_cast<std::size_t>(got);
         }
-        return true;
+        return remaining == 0 && !(canceled && canceled());
     };
 
     httplib::UploadProgress progressCb = nullptr;
     if (onProgress) {
-        progressCb = [&onProgress](std::size_t current, std::size_t total) -> bool {
+        progressCb = [&onProgress, &canceled](std::size_t current, std::size_t total) -> bool {
             onProgress(static_cast<std::int64_t>(current), static_cast<std::int64_t>(total));
-            return true;
+            return !(canceled && canceled());
         };
     }
 
     auto res = cli.Post("/api/v1/upload", headers, size, provider, contentType, progressCb);
-    if (!res || res->status != 200) return "";
-    return extractJsonStringField(res->body, "file_id");
+    if ((canceled && canceled()) || !res || res->status != 200 ||
+        extractJsonStringField(res->body, "sha256") != sha) return "";
+    const auto id = extractJsonStringField(res->body, "file_id");
+    return safeMediaId(id) ? id : "";
 }
 
-bool ClientCore::downloadMedia(const std::string& fileId, const std::string& destPath,
-                               const MediaProgress& onProgress)
+ClientCore::MediaHttpResponse ClientCore::mediaHttpRequest(
+    const std::string& method, const std::string& path,
+    const std::vector<std::pair<std::string, std::string>>& extraHeaders,
+    const std::string& body, const std::string& contentType)
 {
-    if (m_tlsServerName.empty() || m_httpPort == 0 || m_accessToken.empty()) return false;
+    MediaHttpResponse out;
+    if (m_tlsServerName.empty() || m_httpPort == 0 || m_accessToken.empty()) return out;
 
     httplib::SSLClient cli(m_tlsServerName, m_httpPort);
     if (!m_caFile.empty()) cli.set_ca_cert_path(m_caFile);
@@ -591,38 +686,108 @@ bool ClientCore::downloadMedia(const std::string& fileId, const std::string& des
     cli.set_read_timeout(120);
     cli.set_write_timeout(120);
 
-    std::ofstream ofs(destPath, std::ios::binary | std::ios::trunc);
-    if (!ofs) return false;
-
-    const httplib::Headers headers = {
+    httplib::Headers headers = {
         {"Authorization", "Bearer " + m_accessToken},
         {"X-Device-Id", m_deviceId},
     };
+    for (const auto& kv : extraHeaders) headers.emplace(kv.first, kv.second);
+
+    httplib::Result res;
+    if (method == "POST") {
+        res = cli.Post(path.c_str(), headers, body, contentType.c_str());
+    } else if (method == "PUT") {
+        res = cli.Put(path.c_str(), headers, body, contentType.c_str());
+    } else if (method == "GET") {
+        res = cli.Get(path.c_str(), headers);
+    } else if (method == "DELETE") {
+        res = cli.Delete(path.c_str(), headers);
+    } else {
+        return out;
+    }
+    if (!res) return out; // status=-1：本地/网络错误
+    out.status = res->status;
+    out.body = std::move(res->body);
+    return out;
+}
+
+bool ClientCore::downloadMedia(const std::string& fileId, const std::string& destPath,
+                               const MediaProgress& onProgress, const MediaCanceled& canceled)
+{
+    if (m_tlsServerName.empty() || m_httpPort == 0 || m_accessToken.empty() ||
+        !safeMediaId(fileId) || (canceled && canceled())) return false;
+
+    httplib::SSLClient cli(m_tlsServerName, m_httpPort);
+    if (!m_caFile.empty()) cli.set_ca_cert_path(m_caFile);
+    if (!m_host.empty() && m_host != m_tlsServerName) {
+        cli.set_hostname_addr_map({{m_tlsServerName, m_host}});
+    }
+    cli.set_connection_timeout(10);
+    cli.set_read_timeout(120);
+    cli.set_write_timeout(120);
+
+    std::error_code ec;
+    const auto existing = std::filesystem::exists(destPath, ec)
+        ? std::filesystem::file_size(destPath, ec) : 0;
+    if (ec || existing > static_cast<std::uint64_t>(proto::FILE_MAX_SIZE)) return false;
+    httplib::Headers headers = {
+        {"Authorization", "Bearer " + m_accessToken},
+        {"X-Device-Id", m_deviceId},
+    };
+    if (existing > 0) {
+        headers.emplace("Range", "bytes=" + std::to_string(existing) + "-");
+        headers.emplace("If-Range", "\"" + fileId + "\"");
+    }
+
+    std::ofstream ofs;
+    bool accepted = false;
+    std::uint64_t progressBase = existing;
 
     httplib::DownloadProgress progressCb = nullptr;
     if (onProgress) {
-        progressCb = [&onProgress](std::size_t current, std::size_t total) -> bool {
-            onProgress(static_cast<std::int64_t>(current), static_cast<std::int64_t>(total));
-            return true;
+        progressCb = [&onProgress, &progressBase, &canceled](std::size_t current, std::size_t total) -> bool {
+            onProgress(static_cast<std::int64_t>(progressBase + current),
+                       static_cast<std::int64_t>(progressBase + total));
+            return !(canceled && canceled());
         };
     }
 
     // 流式下载：边收边写盘，不整体载入内存
     auto res = cli.Get(
         "/api/v1/download/" + fileId, headers,
-        [&ofs](const char* data, std::size_t len) -> bool {
+        [&](const httplib::Response& response) -> bool {
+            if (canceled && canceled()) return false;
+            // 已有 .part 偏移超界时让响应正常返回，下面清理坏 part 后有界重试一次。
+            if (response.status == 416 && existing > 0) return true;
+            if (response.status != 200 && response.status != 206) return false;
+            if (response.status == 206) {
+                const auto expectedPrefix = "bytes " + std::to_string(existing) + "-";
+                if (existing == 0 || response.get_header_value("Content-Range").rfind(expectedPrefix, 0) != 0)
+                    return false;
+            }
+            if (response.status == 200) progressBase = 0;
+            ofs.open(destPath, std::ios::binary |
+                (response.status == 206 ? std::ios::app : std::ios::trunc));
+            accepted = static_cast<bool>(ofs);
+            return accepted;
+        },
+        [&ofs, &canceled](const char* data, std::size_t len) -> bool {
+            if (canceled && canceled()) return false;
             ofs.write(data, static_cast<std::streamsize>(len));
             return static_cast<bool>(ofs);
         },
         progressCb);
 
     ofs.close();
-    if (!res || (res->status != 200 && res->status != 206)) {
-        std::error_code ec;
-        std::filesystem::remove(destPath, ec);
-        return false;
+    if (res && res->status == 416 && existing > 0 && !(canceled && canceled())) {
+        std::error_code removeError;
+        std::filesystem::remove(destPath, removeError);
+        if (removeError) return false;
+        return downloadMedia(fileId, destPath, onProgress, canceled);
     }
-    return true;
+    // 网络中断时保留已写入的 .part，下次请求会带 Range；上层负责摘要校验。
+    return !(canceled && canceled()) && accepted && res &&
+           (res->status == 200 || res->status == 206) &&
+           static_cast<bool>(ofs);
 }
 #endif // CLIENT_CORE_WITH_MEDIA
 
@@ -806,6 +971,11 @@ void ClientCore::onFriendInfoPkt(const char* data, std::size_t len)
         fri.feeling = info.feeling();
         if (auto* st = m_storage.load()) st->saveFriend(fri);
         if (auto* ev = m_events.load()) ev->onFriendInfo(fri);
+        if(auto sink=acquireFriendProtocolSink()){
+            FriendProtocolInfo nativeInfo;nativeInfo.friendId=fri.id;nativeInfo.iconId=fri.iconId;
+            nativeInfo.status=fri.status;nativeInfo.nick=fri.nick;nativeInfo.signature=fri.feeling;
+            sink->onFriendInfo(nativeInfo);
+        }
     }
 }
 
@@ -870,6 +1040,11 @@ void ClientCore::onAddFriRq(const char* data, std::size_t len)
     im::proto::AddFriendRq rq;
     if (!parsePayload(data, len, rq)) return;
     if (auto* ev = m_events.load()) ev->onAddFriendRequest(rq.myid(), rq.mynick());
+    if(auto sink=acquireFriendProtocolSink()){
+        FriendProtocolRequest request;request.requesterId=rq.myid();request.targetId=m_myId;
+        request.requesterNick=rq.mynick();request.targetNick=rq.frinick();
+        sink->onFriendRequest(request);
+    }
 }
 
 void ClientCore::onAddFriRs(const char* data, std::size_t len)
@@ -884,6 +1059,25 @@ void ClientCore::onFriendOfflinePkt(const char* data, std::size_t len)
     im::proto::FriendOffline pkt;
     if (!parsePayload(data, len, pkt)) return;
     if (auto* ev = m_events.load()) ev->onFriendOffline(pkt.offlineid());
+    if(auto sink=acquireFriendProtocolSink())sink->onFriendOffline(pkt.offlineid());
+}
+
+void ClientCore::onFriendRequestListRs(const char* data,std::size_t len)
+{
+    im::proto::FriendRequestListRs rs;if(!parsePayload(data,len,rs))return;
+    std::vector<FriendProtocolRequest> requests;requests.reserve(rs.requests_size());
+    for(const auto& item:rs.requests()){
+        FriendProtocolRequest r;r.requesterId=item.requester_id();r.targetId=item.target_id();
+        r.requesterNick=item.requester_nick();r.targetNick=item.target_nick();
+        r.createdAt=item.created_at();requests.push_back(std::move(r));
+    }
+    if(auto sink=acquireFriendProtocolSink())sink->onFriendRequestList(requests);
+}
+
+void ClientCore::onDeleteFriendRs(const char* data,std::size_t len)
+{
+    im::proto::DeleteFriendRs rs;if(!parsePayload(data,len,rs))return;
+    if(auto sink=acquireFriendProtocolSink())sink->onDeleteFriendResult(rs.result(),rs.friend_id());
 }
 
 // 把 pb ChatInfoRq 转成对外 RoamMessage 条目（漫游会话列表/历史分页共用）

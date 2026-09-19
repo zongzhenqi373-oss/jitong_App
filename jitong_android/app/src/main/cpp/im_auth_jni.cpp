@@ -11,6 +11,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include "native_sdk_handle.h"
 #include "jni_account_observer.h"
@@ -62,6 +63,8 @@ Java_com_jitong_im_core_NativeBindings_nativeAccountSetup(JNIEnv* env, jclass, j
     h->signer = std::make_shared<jt::JniP256Signer>(platform);
     h->authTransport = std::make_shared<im::account::ClientCoreAuthTransport>(
         *h->core, ip, static_cast<std::uint16_t>(port));
+    h->accountServerIp = ip;
+    h->accountServerPort = static_cast<std::uint16_t>(port);
 
     h->account = std::make_shared<im::account::AccountSession>(
         *h->authTransport, h->clock, h->tokenStore, *h->signer, deviceId);
@@ -103,6 +106,62 @@ Java_com_jitong_im_core_NativeBindings_nativeAccountLoginWithPassword(JNIEnv* en
         session = h->account;
     }
     return static_cast<jlong>(session->startWithPassword(jstr(env, account), jstr(env, password)));
+}
+
+// boolean nativeAccountRegister(long handle, String nick, String tel, String pass)
+// 一次性注册（先于认证，不进入 AccountSession 会话生命周期）：
+// 仅允许在账号空闲（无会话或 LoggedOut/LoggedOutKicked）时发起，避免与
+// AccountSession 的 connect/登录并发竞争同一连接。连接/发送在后台线程执行，
+// 结果经 NativeEventSink.onRegisterResult 异步上抛；本地连接不可用上报 result=0。
+JNIEXPORT jboolean JNICALL
+Java_com_jitong_im_core_NativeBindings_nativeAccountRegister(JNIEnv* env, jclass, jlong handle,
+                                                             jstring nick, jstring tel,
+                                                             jstring pass)
+{
+    auto h = jt::lookupHandle(handle);
+    if (!h) return JNI_FALSE;
+    {
+        std::lock_guard<std::mutex> lk(h->mutex);
+        if (h->isDestroying() || !h->core || h->accountServerPort == 0) return JNI_FALSE;
+        if (h->account) {
+            const auto state = h->account->accountState();
+            if (state != im::account::AccountState::LoggedOut &&
+                state != im::account::AccountState::LoggedOutKicked) return JNI_FALSE;
+        }
+    }
+    const std::string nickUtf8 = jstr(env, nick);
+    const std::string telUtf8 = jstr(env, tel);
+    const std::string passUtf8 = jstr(env, pass);
+    if (nickUtf8.empty() || telUtf8.empty() || passUtf8.empty()) return JNI_FALSE;
+
+    std::thread([h, nickUtf8, telUtf8, passUtf8]() {
+        std::shared_ptr<im::ClientCore> core;
+        std::string ip;
+        std::uint16_t port = 0;
+        {
+            std::lock_guard<std::mutex> lk(h->mutex);
+            if (h->isDestroying()) return;
+            core = h->core;
+            ip = h->accountServerIp;
+            port = h->accountServerPort;
+        }
+        if (!core) return;
+        if (!core->isConnected()) {
+            core->connectToServer(ip, port); // 阻塞完成 TLS + 应用层安全握手
+        }
+        std::shared_ptr<jt::JniObserver> observer;
+        {
+            std::lock_guard<std::mutex> lk(h->mutex);
+            if (h->isDestroying()) return;
+            observer = h->observer;
+        }
+        if (!core->isConnected()) {
+            if (observer) observer->onRegisterResult(0); // 0=本地连接失败（非协议结果码）
+            return;
+        }
+        core->sendRegister(nickUtf8, telUtf8, passUtf8);
+    }).detach();
+    return JNI_TRUE;
 }
 
 // long nativeAccountStartWithSavedToken(long handle, String account)

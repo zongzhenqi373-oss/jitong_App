@@ -3,6 +3,7 @@
 #include <sqlite3.h>
 
 #include <sstream>
+#include <stdexcept>
 
 namespace im {
 namespace storage {
@@ -433,6 +434,249 @@ bool MigrationImporter::readConversationCheckpoint(sqlite3* db, std::int64_t own
     }
     if (s) sqlite3_finalize(s);
     return found;
+}
+
+bool MigrationImporter::readLegacyDeltaCheckpoint(sqlite3* db, std::int64_t epoch,
+                                                   std::int64_t* checkpoint)
+{
+    if (!db || !checkpoint || epoch <= 0) return false;
+    *checkpoint = 0;
+    sqlite3_stmt* s = nullptr;
+    const char* sql = "SELECT checkpoint_value FROM migration_checkpoint WHERE epoch=?1 AND stream='legacy_delta'";
+    if (sqlite3_prepare_v2(db, sql, -1, &s, nullptr) != SQLITE_OK || !s) return false;
+    sqlite3_bind_int64(s, 1, epoch);
+    const int rc = sqlite3_step(s);
+    if (rc == SQLITE_ROW) {
+        const unsigned char* t = sqlite3_column_text(s, 0);
+        if (t) {
+            try { *checkpoint = std::stoll(reinterpret_cast<const char*>(t)); }
+            catch (...) { sqlite3_finalize(s); return false; }
+        }
+    }
+    sqlite3_finalize(s);
+    return rc == SQLITE_ROW || rc == SQLITE_DONE;
+}
+
+bool MigrationImporter::seedLegacyDeltaCheckpoint(sqlite3* db, std::int64_t epoch,
+                                                   std::int64_t baseline,
+                                                   std::int64_t updatedAt,std::string* err)
+{
+    if(!db||epoch<=0||baseline<0||updatedAt<=0){if(err)*err="baseline 参数非法";return false;}
+    sqlite3_stmt* read=nullptr;
+    const char* query="SELECT checkpoint_value FROM migration_checkpoint "
+                      "WHERE epoch=?1 AND stream='legacy_delta'";
+    if(sqlite3_prepare_v2(db,query,-1,&read,nullptr)!=SQLITE_OK||!read){
+        if(err)*err="读取 baseline 失败";return false;
+    }
+    sqlite3_bind_int64(read,1,epoch);
+    const int rc=sqlite3_step(read);
+    if(rc==SQLITE_ROW){
+        const auto* text=sqlite3_column_text(read,0);std::int64_t current=-1;
+        try{if(text)current=std::stoll(reinterpret_cast<const char*>(text));}catch(...){current=-1;}
+        sqlite3_finalize(read);
+        if(current==baseline)return true;
+        if(err)*err="baseline 已存在且不一致";
+        return false;
+    }
+    sqlite3_finalize(read);
+    if(rc!=SQLITE_DONE){if(err)*err="读取 baseline 失败";return false;}
+    sqlite3_stmt* insert=nullptr;
+    const char* sql="INSERT INTO migration_checkpoint(epoch,stream,checkpoint_value,updated_at) "
+                    "VALUES(?1,'legacy_delta',?2,?3)";
+    if(sqlite3_prepare_v2(db,sql,-1,&insert,nullptr)!=SQLITE_OK||!insert){
+        if(err)*err="准备 baseline 写入失败";return false;
+    }
+    const std::string value=std::to_string(baseline);
+    sqlite3_bind_int64(insert,1,epoch);
+    sqlite3_bind_text(insert,2,value.c_str(),-1,SQLITE_TRANSIENT);
+    sqlite3_bind_int64(insert,3,updatedAt);
+    const bool ok=sqlite3_step(insert)==SQLITE_DONE;
+    if(!ok&&err)*err=sqlite3_errmsg(db);
+    sqlite3_finalize(insert);
+    return ok;
+}
+
+bool MigrationImporter::applyLegacyDeltaBatch(sqlite3* db, std::int64_t ownerId,
+                                               std::int64_t epoch,
+                                               std::int64_t expectedAfter,
+                                               const std::vector<LegacyDeltaChange>& changes,
+                                               std::int64_t* committedCheckpoint,
+                                               std::string* err)
+{
+    if (committedCheckpoint) *committedCheckpoint = 0;
+    if (!db || ownerId <= 0 || epoch <= 0 || expectedAfter < 0) {
+        if (err) *err = "delta 参数非法";
+        return false;
+    }
+    std::int64_t current = 0;
+    if (!readLegacyDeltaCheckpoint(db, epoch, &current)) {
+        if (err) *err = "读取 legacy_delta checkpoint 失败";
+        return false;
+    }
+    if (changes.empty()) {
+        if (current != expectedAfter) { if (err) *err = "delta checkpoint 不匹配"; return false; }
+        if (committedCheckpoint) *committedCheckpoint = current;
+        return true;
+    }
+    std::int64_t prev = expectedAfter;
+    for (const auto& c : changes) {
+        if (c.ownerId != ownerId || c.changeSeq <= prev) {
+            if (err) *err = "delta owner 或 changeSeq 非严格递增";
+            return false;
+        }
+        if ((c.entityType != "MESSAGE" && c.entityType != "CONVERSATION") ||
+            (c.operation != "UPSERT" && c.operation != "DELETE") || c.entityKey.empty()) {
+            if (err) *err = "delta 实体或操作非法";
+            return false;
+        }
+        if ((c.operation == "UPSERT" && (c.payloadVersion != 1 || c.payload.empty())) ||
+            (c.operation == "DELETE" && (c.payloadVersion != 0 || !c.payload.empty()))) {
+            if (err) *err = "delta payload 版本或 tombstone 非法";
+            return false;
+        }
+        if (c.entityType == "CONVERSATION") {
+            try {
+                std::size_t used = 0;
+                const auto id = std::stoll(c.entityKey, &used);
+                if (used != c.entityKey.size() || id <= 0) throw std::invalid_argument("id");
+            } catch (...) {
+                if (err) *err = "conversation entityKey 非法";
+                return false;
+            }
+        }
+        prev = c.changeSeq;
+    }
+    // 整批已落在 checkpoint 之前属于安全重放；校验内容后直接返回当前水位。
+    if (expectedAfter < current && changes.back().changeSeq <= current) {
+        if (committedCheckpoint) *committedCheckpoint = current;
+        return true;
+    }
+    if (current != expectedAfter) {
+        if (err) *err = "delta checkpoint 不匹配或批次跨越已提交水位";
+        return false;
+    }
+
+    auto run = [&](const char* sql, const LegacyDeltaChange& c) -> bool {
+        sqlite3_stmt* s = nullptr;
+        if (sqlite3_prepare_v2(db, sql, -1, &s, nullptr) != SQLITE_OK || !s) {
+            if (err) *err = sqlite3_errmsg(db);
+            return false;
+        }
+        sqlite3_bind_int64(s, 1, ownerId);
+        sqlite3_bind_text(s, 2, c.entityKey.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(s, 3, c.payload.c_str(), -1, SQLITE_TRANSIENT);
+        const bool ok = sqlite3_step(s) == SQLITE_DONE;
+        if (!ok && err) *err = sqlite3_errmsg(db);
+        sqlite3_finalize(s);
+        return ok;
+    };
+
+    const char* upsertMessage =
+        "INSERT INTO messages(owner_id,msg_id,conversation_id,peer_id,conversation_seq,server_time,"
+        "local_order,from_me,type,content,status,media_path,img_w,img_h,file_id,file_name,file_size,"
+        "content_type,sha256,thumbnail_file_id,thumbnail_path,thumbnail_size,thumbnail_sha256,"
+        "thumbnail_w,thumbnail_h,large_thumbnail_file_id,large_thumbnail_path,large_thumbnail_size,"
+        "large_thumbnail_sha256,large_thumbnail_w,large_thumbnail_h,local_path,transferred) VALUES("
+        "?1,?2,json_extract(?3,'$.conversationId'),json_extract(?3,'$.peerId'),json_extract(?3,'$.seq'),"
+        "json_extract(?3,'$.ts'),json_extract(?3,'$.localOrder'),json_extract(?3,'$.fromMe'),"
+        "json_extract(?3,'$.type'),json_extract(?3,'$.content'),json_extract(?3,'$.status'),"
+        "json_extract(?3,'$.mediaPath'),json_extract(?3,'$.imgW'),json_extract(?3,'$.imgH'),"
+        "json_extract(?3,'$.fileId'),json_extract(?3,'$.fileName'),json_extract(?3,'$.fileSize'),"
+        "json_extract(?3,'$.contentType'),json_extract(?3,'$.sha256'),json_extract(?3,'$.thumbnailFileId'),"
+        "json_extract(?3,'$.thumbnailPath'),json_extract(?3,'$.thumbnailSize'),json_extract(?3,'$.thumbnailSha256'),"
+        "json_extract(?3,'$.thumbnailW'),json_extract(?3,'$.thumbnailH'),json_extract(?3,'$.largeThumbnailFileId'),"
+        "json_extract(?3,'$.largeThumbnailPath'),json_extract(?3,'$.largeThumbnailSize'),"
+        "json_extract(?3,'$.largeThumbnailSha256'),json_extract(?3,'$.largeThumbnailW'),"
+        "json_extract(?3,'$.largeThumbnailH'),json_extract(?3,'$.localPath'),json_extract(?3,'$.transferred')) "
+        "ON CONFLICT(owner_id,msg_id) DO UPDATE SET conversation_id=excluded.conversation_id,peer_id=excluded.peer_id,"
+        "conversation_seq=excluded.conversation_seq,server_time=excluded.server_time,local_order=excluded.local_order,"
+        "from_me=excluded.from_me,type=excluded.type,content=excluded.content,status=excluded.status,media_path=excluded.media_path,"
+        "img_w=excluded.img_w,img_h=excluded.img_h,file_id=excluded.file_id,file_name=excluded.file_name,file_size=excluded.file_size,"
+        "content_type=excluded.content_type,sha256=excluded.sha256,thumbnail_file_id=excluded.thumbnail_file_id,"
+        "thumbnail_path=excluded.thumbnail_path,thumbnail_size=excluded.thumbnail_size,thumbnail_sha256=excluded.thumbnail_sha256,"
+        "thumbnail_w=excluded.thumbnail_w,thumbnail_h=excluded.thumbnail_h,large_thumbnail_file_id=excluded.large_thumbnail_file_id,"
+        "large_thumbnail_path=excluded.large_thumbnail_path,large_thumbnail_size=excluded.large_thumbnail_size,"
+        "large_thumbnail_sha256=excluded.large_thumbnail_sha256,large_thumbnail_w=excluded.large_thumbnail_w,"
+        "large_thumbnail_h=excluded.large_thumbnail_h,local_path=excluded.local_path,transferred=excluded.transferred";
+    const char* upsertConversation =
+        "INSERT INTO conversations(conversation_id,owner_id,peer_id,last_message,last_message_time,unread,read_seq) "
+        "VALUES(CAST(?2 AS INTEGER),?1,json_extract(?3,'$.peerId'),json_extract(?3,'$.lastMsg'),"
+        "json_extract(?3,'$.lastTs'),json_extract(?3,'$.unread'),0) ON CONFLICT(conversation_id) DO UPDATE SET "
+        "owner_id=excluded.owner_id,peer_id=excluded.peer_id,last_message=excluded.last_message,"
+        "last_message_time=excluded.last_message_time,unread=excluded.unread";
+
+    for (const auto& c : changes) {
+        if (c.entityType == "MESSAGE") {
+            // FTS4 无 owner/index；delta 单条更新按 msg_id 删除旧行，再维护 O(1) identity 镜像。
+            // 批量 snapshot 路径仍禁止这样做（会 O(n²)），delta 单页上限 500 且更新频率低。
+            const std::string cleanFts =
+                "DELETE FROM message_fts WHERE msg_id=" + quote(c.entityKey) + ";"
+                "DELETE FROM message_fts_identity WHERE owner_id=" + num(ownerId) + " AND msg_id=" + quote(c.entityKey) + ";";
+            if (!exec(db, cleanFts, err)) return false;
+            if (c.operation == "DELETE") {
+                std::int64_t affectedConversation = 0;
+                sqlite3_stmt* find = nullptr;
+                if (sqlite3_prepare_v2(db, "SELECT conversation_id FROM messages WHERE owner_id=?1 AND msg_id=?2",
+                                       -1, &find, nullptr) != SQLITE_OK || !find) return false;
+                sqlite3_bind_int64(find, 1, ownerId);
+                sqlite3_bind_text(find, 2, c.entityKey.c_str(), -1, SQLITE_TRANSIENT);
+                if (sqlite3_step(find) == SQLITE_ROW) affectedConversation = sqlite3_column_int64(find, 0);
+                sqlite3_finalize(find);
+                if (!exec(db, "DELETE FROM media_refs WHERE owner_id=" + num(ownerId) + " AND msg_id=" + quote(c.entityKey) +
+                              ";DELETE FROM outbox WHERE owner_id=" + num(ownerId) + " AND msg_id=" + quote(c.entityKey) +
+                              ";DELETE FROM messages WHERE owner_id=" + num(ownerId) + " AND msg_id=" + quote(c.entityKey), err)) return false;
+                if (affectedConversation > 0) {
+                    const std::string conv = num(affectedConversation);
+                    const std::string recalc =
+                        "UPDATE conversations SET "
+                        "last_message=COALESCE((SELECT content FROM messages WHERE owner_id=" + num(ownerId) +
+                        " AND conversation_id=" + conv + " ORDER BY server_time DESC,conversation_seq DESC,local_order DESC,msg_id DESC LIMIT 1),''),"
+                        "last_message_time=COALESCE((SELECT server_time FROM messages WHERE owner_id=" + num(ownerId) +
+                        " AND conversation_id=" + conv + " ORDER BY server_time DESC,conversation_seq DESC,local_order DESC,msg_id DESC LIMIT 1),0),"
+                        "last_msg_id=COALESCE((SELECT msg_id FROM messages WHERE owner_id=" + num(ownerId) +
+                        " AND conversation_id=" + conv + " ORDER BY server_time DESC,conversation_seq DESC,local_order DESC,msg_id DESC LIMIT 1),'') "
+                        "WHERE owner_id=" + num(ownerId) + " AND conversation_id=" + conv;
+                    if (!exec(db, recalc, err)) return false;
+                }
+            } else {
+                if (!run(upsertMessage, c)) return false;
+                const char* fts =
+                    "INSERT INTO message_fts(content,pinyin,initials,msg_id) "
+                    "SELECT json_extract(?3,'$.content'),json_extract(?3,'$.pinyin'),json_extract(?3,'$.initials'),?2 "
+                    "WHERE COALESCE(json_extract(?3,'$.content'),'')<>''";
+                const char* identity =
+                    "INSERT INTO message_fts_identity(owner_id,msg_id,content,pinyin,initials) "
+                    "SELECT ?1,?2,json_extract(?3,'$.content'),json_extract(?3,'$.pinyin'),json_extract(?3,'$.initials') "
+                    "WHERE COALESCE(json_extract(?3,'$.content'),'')<>''";
+                if (!run(fts, c) || !run(identity, c)) return false;
+                const char* derivedConversation =
+                    "INSERT INTO conversations(conversation_id,owner_id,peer_id,last_message,last_message_time,unread,read_seq,last_msg_id) "
+                    "VALUES(json_extract(?3,'$.conversationId'),?1,json_extract(?3,'$.peerId'),json_extract(?3,'$.content'),"
+                    "json_extract(?3,'$.ts'),0,0,?2) ON CONFLICT(conversation_id) DO UPDATE SET "
+                    "last_message=excluded.last_message,last_message_time=excluded.last_message_time,last_msg_id=excluded.last_msg_id "
+                    "WHERE excluded.last_message_time>=conversations.last_message_time";
+                if (!run(derivedConversation, c)) return false;
+            }
+        } else if (c.operation == "DELETE") {
+            if (!exec(db, "DELETE FROM conversations WHERE owner_id=" + num(ownerId) +
+                          " AND conversation_id=" + c.entityKey, err)) return false;
+        } else if (!run(upsertConversation, c)) return false;
+    }
+
+    sqlite3_stmt* cp = nullptr;
+    const char* cpSql = "INSERT INTO migration_checkpoint(epoch,stream,checkpoint_value,updated_at) "
+                        "VALUES(?1,'legacy_delta',?2,?3) ON CONFLICT(epoch,stream) DO UPDATE SET "
+                        "checkpoint_value=excluded.checkpoint_value,updated_at=excluded.updated_at";
+    if (sqlite3_prepare_v2(db, cpSql, -1, &cp, nullptr) != SQLITE_OK || !cp) return false;
+    sqlite3_bind_int64(cp, 1, epoch);
+    const std::string value = std::to_string(prev);
+    sqlite3_bind_text(cp, 2, value.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(cp, 3, changes.back().changedAt);
+    const bool ok = sqlite3_step(cp) == SQLITE_DONE;
+    if (!ok && err) *err = sqlite3_errmsg(db);
+    sqlite3_finalize(cp);
+    if (ok && committedCheckpoint) *committedCheckpoint = prev;
+    return ok;
 }
 
 bool MigrationImporter::computeSummary(sqlite3* db, std::int64_t ownerId, MigrationSummary* out,

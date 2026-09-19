@@ -104,6 +104,25 @@ public:
                                 bool hasMore,std::int64_t minSeq)=0;
 };
 
+struct FriendProtocolInfo {
+    std::int64_t friendId=0;
+    std::int32_t iconId=0,status=0;
+    std::string nick,signature;
+};
+struct FriendProtocolRequest {
+    std::int64_t requesterId=0,targetId=0,createdAt=0;
+    std::string requesterNick,targetNick;
+};
+class IFriendProtocolSink {
+public:
+    virtual ~IFriendProtocolSink()=default;
+    virtual void onFriendInfo(const FriendProtocolInfo& info)=0;
+    virtual void onFriendRequest(const FriendProtocolRequest& request)=0;
+    virtual void onFriendRequestList(const std::vector<FriendProtocolRequest>& requests)=0;
+    virtual void onFriendOffline(std::int64_t friendId)=0;
+    virtual void onDeleteFriendResult(int result,std::int64_t friendId)=0;
+};
+
 // UI 事件回调接口（由 UI 层实现）
 class IClientEvents {
 public:
@@ -197,6 +216,7 @@ public:
     void setAuthProtocolSink(IAuthProtocolSink* sink);
     /** 注入完整消息协议 sink；回调来自网络 IO 线程，非拥有指针。 */
     void setMessageProtocolSink(const std::shared_ptr<IMessageProtocolSink>& sink);
+    void setFriendProtocolSink(const std::shared_ptr<IFriendProtocolSink>& sink);
 
     // P5-T06：发送一个已构造好的认证请求 payload（TokenLoginRq/RefreshTokenRq/LogoutRq）。
     // 走与业务帧相同的加密发送路径（安全通道建立后自动加密）。
@@ -232,6 +252,8 @@ public:
     void sendAddFriendRequest(const std::string& friNickUtf8);
     // 回复添加好友请求：agree=true 同意，false 拒绝；destId/destNick 为请求发起人
     void answerAddFriend(int destId, const std::string& destNickUtf8, bool agree);
+    void requestFriendRequests();
+    void deleteFriend(int friendId);
     // 通知服务端自己下线（下线后由调用方决定何时 disconnect）
     void sendOfflineNotify();
 
@@ -247,14 +269,27 @@ public:
 #if defined(CLIENT_CORE_WITH_MEDIA)
     // 进度回调：sentOrReceived/total 为字节数；仅供 UI 展示，可为空
     using MediaProgress = std::function<void(std::int64_t sentOrReceived, std::int64_t total)>;
+    using MediaCanceled = std::function<bool()>;
 
     // 上传本地文件到 HTTP 文件服务（阻塞，边读边发不整体载入内存），成功返回 file_id、
     // 失败返回空串。isImage=true 时以 image/* Content-Type 上传（服务端据此走内容寻址去重）。
     std::string uploadMedia(const std::string& localPath, int receiverId, bool isImage,
-                            const MediaProgress& onProgress = nullptr);
+                            const MediaProgress& onProgress = nullptr,
+                            const MediaCanceled& canceled = nullptr);
     // 从 HTTP 文件服务下载到本地路径（阻塞，边收边写不整体载入内存），成功返回 true
     bool downloadMedia(const std::string& fileId, const std::string& destPath,
-                       const MediaProgress& onProgress = nullptr);
+                       const MediaProgress& onProgress = nullptr,
+                       const MediaCanceled& canceled = nullptr);
+
+    /** 带鉴权的媒体 HTTP 请求（Bearer token + X-Device-Id）。status<0 表示本地/网络错误。 */
+    struct MediaHttpResponse {
+        int status = -1;
+        std::string body;
+    };
+    MediaHttpResponse mediaHttpRequest(
+        const std::string& method, const std::string& path,
+        const std::vector<std::pair<std::string, std::string>>& extraHeaders,
+        const std::string& body, const std::string& contentType);
 #endif // CLIENT_CORE_WITH_MEDIA
 
     // uploadMedia 成功后，发一条 ChatInfoRq(type=IMAGE/FILE) 作为"已就绪"通知
@@ -296,6 +331,8 @@ private:
     void onAddFriRq(const char* data, std::size_t len);
     void onAddFriRs(const char* data, std::size_t len);
     void onFriendOfflinePkt(const char* data, std::size_t len);
+    void onFriendRequestListRs(const char* data, std::size_t len);
+    void onDeleteFriendRs(const char* data, std::size_t len);
     // 被踢下线通知
     void onKickedOfflinePkt(const char* data, std::size_t len);
     // 心跳回复：无需处理（任何入站包都会刷新活跃时间），注册避免"未注册类型"日志
@@ -349,8 +386,10 @@ private:
     // P5-T06：认证协议 sink（AccountSession 生产适配器）。非拥有指针。
     std::atomic<IAuthProtocolSink*> m_authSink{nullptr};
     std::shared_ptr<IMessageProtocolSink> acquireMessageProtocolSink() const;
+    std::shared_ptr<IFriendProtocolSink> acquireFriendProtocolSink() const;
     mutable std::mutex m_messageSinkMutex;
     std::weak_ptr<IMessageProtocolSink> m_messageSink;
+    std::weak_ptr<IFriendProtocolSink> m_friendSink;
     std::unique_ptr<TcpTransport> m_transport;
 
     // 会话状态（登录成功后填充）

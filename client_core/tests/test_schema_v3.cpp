@@ -119,9 +119,9 @@ int main()
 {
     std::cout << "=== test_schema_v3 ===" << std::endl;
 
-    // [1] 最新版应为 6（001..006，保留 v3/v4/v5 回归）
-    check(SchemaManager::latestVersion() == 6, "latestVersion() == 6");
-    check(SchemaManager::migrationCount() == 6, "已注册 6 个迁移脚本（保留 v3/v4/v5 回归）");
+    // [1] 最新版应为 8（001..008，保留旧版本回归）
+    check(SchemaManager::latestVersion() == 8, "latestVersion() == 8");
+    check(SchemaManager::migrationCount() == 8, "已注册 8 个迁移脚本（保留 v3..v7 回归）");
 
     // [2] 空库 0→3：全部新表存在
     {
@@ -345,6 +345,32 @@ int main()
                                                "next_retry_at<=1700009999", "idx_sync_gaps_retry");
             check(ok1, "好友申请查询命中 idx_friend_requests_state");
             check(ok2, "缺洞查询命中 idx_sync_gaps_retry");
+        }
+    }
+
+    // [12] 已存在的 v7 上传草稿可无损升至 v8；旧草稿尺寸按未知处理。
+    {
+        std::string err;
+        sqlite3* db = openAt(7, &err);
+        check(db != nullptr, "停在 v7 " + err);
+        if (db) {
+            check(exec(db, "INSERT INTO upload_drafts(owner_id,msg_id,variant,conversation_id,"
+                           "peer_id,local_path,file_name,file_size,sha256,content_type,created_at,"
+                           "updated_at) VALUES(1,'old-image',0,100,2,'/tmp/old.avif','old.avif',"
+                           "10,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',"
+                           "'image/avif',1,1)"), "v7 草稿写入");
+            check(SchemaManager::migrateTo(db, 8, &err) == SchemaError::Ok, "7→8 " + err);
+            check(SchemaManager::currentVersion(db) == 8, "v8 版本正确");
+            sqlite3_stmt* s = nullptr;
+            int width = -1, height = -1;
+            if (sqlite3_prepare_v2(db, "SELECT image_width,image_height FROM upload_drafts "
+                    "WHERE msg_id='old-image'", -1, &s, nullptr) == SQLITE_OK && s &&
+                sqlite3_step(s) == SQLITE_ROW) {
+                width = sqlite3_column_int(s, 0);
+                height = sqlite3_column_int(s, 1);
+            }
+            if (s) sqlite3_finalize(s);
+            check(width == 0 && height == 0, "旧草稿保留且尺寸为未知");
         }
     }
 

@@ -50,6 +50,16 @@ private:
     void handlePreflight(const httplib::Request& req, httplib::Response& res);
     void handleProof(const httplib::Request& req, httplib::Response& res);
     void handleDownload(const httplib::Request& req, httplib::Response& res);
+    // 分片上传会话（断点续传）；整文件 POST /api/v1/upload 保留为旧客户端兼容路径
+    void handleCreateUpload(const httplib::Request& req, httplib::Response& res);
+    void handleUploadChunk(const httplib::Request& req, httplib::Response& res,
+                           const httplib::ContentReader& reader);
+    void handleGetUpload(const httplib::Request& req, httplib::Response& res);
+    void handleFinalizeUpload(const httplib::Request& req, httplib::Response& res);
+    void handleCancelUpload(const httplib::Request& req, httplib::Response& res);
+    /** 秒传命中时签发 PoP 挑战并返回响应 JSON；未命中返回空串。 */
+    std::string issueInstantChallenge(int userId, int receiverId, const std::string& sha,
+                                      std::int64_t size);
     void gcLoop();
 
     Server& m_server;

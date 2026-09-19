@@ -41,9 +41,15 @@ bool destroyHandleLocked(const std::shared_ptr<NativeSdkHandle>& handle)
     std::shared_ptr<im::runtime::ClientRuntime> runtime;
     std::shared_ptr<im::storage::NativeDatabase> db;
     std::shared_ptr<jt::JniDbKeyBridge> dbKeyBridge;
+    std::shared_ptr<im::media::MediaService> mediaService;
+    std::shared_ptr<im::storage::NativeRepository> mediaRepo;
+    std::shared_ptr<im::media::IUploadTransport> uploadTransport;
 
     {
         std::lock_guard<std::mutex> lk(handle->mutex);
+        for (auto& entry : handle->mediaOperations)
+            entry.second->store(true, std::memory_order_release);
+        handle->mediaOperations.clear();
         core = std::move(handle->core);
         observer = std::move(handle->observer);
         account = std::move(handle->account);
@@ -54,6 +60,10 @@ bool destroyHandleLocked(const std::shared_ptr<NativeSdkHandle>& handle)
         authPlatform = std::move(handle->authPlatform);
         clock = std::move(handle->clock);
         runtime = std::move(handle->runtime);
+        // 上传编排依赖 repo/transport/db：先移出，锁外按依赖逆序释放
+        mediaService = std::move(handle->mediaService);
+        mediaRepo = std::move(handle->mediaRepo);
+        uploadTransport = std::move(handle->uploadTransport);
         db = std::move(handle->db);
         dbKeyBridge = std::move(handle->dbKeyBridge);
         handle->dbOwnerId = 0;
@@ -80,6 +90,10 @@ bool destroyHandleLocked(const std::shared_ptr<NativeSdkHandle>& handle)
         runtime->destroy();
         runtime.reset();
     }
+    // 上传编排先于 db 释放（service 引用 repo/transport，repo 引用 db）
+    mediaService.reset();
+    mediaRepo.reset();
+    uploadTransport.reset();
     // P6：数据底座早于 core 释放；close() 内部按「停队列 → 关读池 → 关写连接 → 清 key」。
     db.reset();
     dbKeyBridge.reset();

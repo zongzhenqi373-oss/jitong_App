@@ -303,6 +303,27 @@ int main()
         check(SchemaManager::migrateTo(d.h(),6)==SchemaError::ExecFailed,"v6 失败返回错误（索引引用缺失列）");
         check(SchemaManager::currentVersion(d.h())==5,"v6 失败保留版本5");
     }
+    // v7（007_upload_drafts）：上传草稿表 + 活跃草稿索引
+    for (int startVersion=1;startVersion<=6;++startVersion) {
+        removeDb(); Db d;
+        check(SchemaManager::migrateTo(d.h(),startVersion)==SchemaError::Ok,"v7 前置建库");
+        check(SchemaManager::migrateTo(d.h(),7)==SchemaError::Ok,"startVersion→7 升级");
+        check(queryInt(d.h(),"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='upload_drafts'")==1,
+              "upload_drafts 表已建");
+        check(exec(d.h(),"INSERT INTO upload_drafts(owner_id,msg_id,variant,conversation_id,peer_id,"
+                        "local_path,file_name,file_size,sha256,created_at,updated_at) "
+                        "VALUES(1,'m1',0,100,200,'/tmp/a.jpg','a.jpg',10,"
+                        "'0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',1,1)"),
+              "写入 upload_drafts");
+    }
+    {
+        removeDb(); Db d;
+        check(SchemaManager::migrateTo(d.h(),6)==SchemaError::Ok,"v7 回滚前置到 v6");
+        check(exec(d.h(),"CREATE TABLE upload_drafts(owner_id INTEGER NOT NULL,msg_id TEXT NOT NULL)"),
+              "注入缺列 upload_drafts 表");
+        check(SchemaManager::migrateTo(d.h(),7)==SchemaError::ExecFailed,"v7 失败返回错误（索引引用缺失列）");
+        check(SchemaManager::currentVersion(d.h())==6,"v7 失败保留版本6");
+    }
     removeDb();
     if (g_failures == 0) {
         std::cout << "test_schema_migrations PASSED" << std::endl;

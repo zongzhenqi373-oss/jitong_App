@@ -26,11 +26,13 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <thread>
+#include <vector>
 
 #include "client_core/runtime/CompletionRegistry.h"
 #include "client_core/runtime/InvalidationBus.h"
 #include "client_core/storage/NativeDatabase.h"
 #include "client_core/message/MessageService.h"
+#include "client_core/friend/FriendService.h"
 #include "client_core/sync/SyncService.h"
 #include "client_core/ClientCore.h"
 #include "client_core/testing/DeterministicClock.h"
@@ -156,6 +158,8 @@ public:
     MessageCommand sendText(std::int64_t conversationId, std::int64_t peerId,
                             const std::string& text, const std::string& pinyin = {},
                             const std::string& initials = {});
+    /** 媒体字节已上传后提交卡片；与文本共用 Native Outbox/ACK 幂等链路。 */
+    MessageCommand sendMedia(const im::dto::MessageDto& intent);
     OperationId markRead(std::int64_t conversationId,std::int64_t readSeq);
     /** 领取持久 Outbox 并经既有安全连接发送；返回实际入队条数。 */
     int flushOutbox(std::int64_t nowSeconds, int limit = 32);
@@ -170,6 +174,18 @@ public:
                             bool hasMore,std::int64_t minSeq);
     bool requestRoamConversations();
     bool requestRoamMessages(std::int64_t peerId,std::int64_t beforeSeq,int limit);
+    bool loadFriends(std::vector<im::dto::FriendDto>* out,std::string* err=nullptr) const;
+    bool loadFriendRequests(std::vector<im::dto::FriendRequestDto>* out,
+                            std::string* err=nullptr) const;
+    bool requestFriendRequests();
+    bool sendAddFriendRequest(const std::string& nick);
+    bool answerFriendRequest(std::int64_t requesterId,const std::string& requesterNick,bool agree);
+    bool deleteFriend(std::int64_t friendId);
+    void handleFriendInfo(const im::FriendProtocolInfo& info);
+    void handleFriendRequest(const im::FriendProtocolRequest& request);
+    void handleFriendRequestList(const std::vector<im::FriendProtocolRequest>& requests);
+    void handleFriendOffline(std::int64_t friendId);
+    void handleDeleteFriendResult(int result,std::int64_t friendId);
 #ifdef CLIENT_CORE_TEST_HOOKS
     /** 仅测试：替代真实 Socket 漫游发送，模拟接受请求但永不返回。 */
     void setRoamRequestHookForTest(
@@ -210,11 +226,13 @@ private:
     std::shared_ptr<im::storage::NativeDatabase> m_db;
     std::shared_ptr<im::storage::NativeRepository> m_repository;
     std::shared_ptr<im::message::MessageService> m_messageService;
+    std::shared_ptr<im::friend_service::FriendService> m_friendService;
     std::shared_ptr<im::sync::SyncService> m_syncService;
     std::shared_ptr<im::ClientCore> m_core;
     std::shared_ptr<IRuntimeEventSink> m_runtimeEventSink;
     std::function<bool(std::int64_t,std::int64_t,int)> m_roamRequestHookForTest;
     std::shared_ptr<im::IMessageProtocolSink> m_messageBridge;
+    std::shared_ptr<im::IFriendProtocolSink> m_friendBridge;
     struct InflightMessage { std::int64_t attempt=0; OperationId operationId; };
     std::unordered_map<std::string,InflightMessage> m_inflightMessages;
     std::unordered_set<std::int64_t> m_gapPending;

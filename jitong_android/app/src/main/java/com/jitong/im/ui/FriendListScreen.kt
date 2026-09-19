@@ -70,7 +70,12 @@ fun FriendListScreen(vm: MainViewModel) {
                     },
                     onGroup = { vm.notify("群聊功能即将上线") },
                 )
-                HomeTab.Me -> MeTab(vm.myId, myNick, myFeeling, vm::notify, vm::logout)
+                HomeTab.Me -> MeTab(vm.myId, myNick, myFeeling, vm::notify, vm::logout) {
+                    vm.prepareColdStartCutover {
+                        // 预约已持久化，旧写入已排空；退出进程，用户重新打开时只启动迁移页。
+                        android.os.Process.killProcess(android.os.Process.myPid())
+                    }
+                }
             }
         }
     }
@@ -170,7 +175,12 @@ private fun ContactsTab(
 }
 
 @Composable
-private fun MeTab(id: Int, nick: String, feeling: String, notify: (String) -> Unit, logout: () -> Unit) {
+private fun MeTab(id: Int, nick: String, feeling: String, notify: (String) -> Unit,
+                  logout: () -> Unit, cutover: () -> Unit) {
+    var confirmCutover by remember { mutableStateOf(false) }
+    // 端到端真账号演练尚未完成；入口仅在可调试包显示，避免正式包误触单向切换。
+    val appInfo = androidx.compose.ui.platform.LocalContext.current.applicationInfo
+    val cutoverEnabled = (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
     Text("我的", Modifier.padding(horizontal = 18.dp, vertical = 16.dp), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -197,6 +207,12 @@ private fun MeTab(id: Int, nick: String, feeling: String, notify: (String) -> Un
                 }
             }
         }
+        if (cutoverEnabled) item {
+            OutlinedButton(onClick = { confirmCutover = true },
+                modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                Text("迁移本地消息到新内核")
+            }
+        }
         item {
             OutlinedButton(
                 onClick = logout,
@@ -207,6 +223,13 @@ private fun MeTab(id: Int, nick: String, feeling: String, notify: (String) -> Un
             ) { Text("退出登录") }
         }
     }
+    if (confirmCutover) AlertDialog(
+        onDismissRequest = { confirmCutover = false },
+        title = { Text("确认迁移本地消息？") },
+        text = { Text("旧任务排空后应用会退出；重新打开时执行迁移。迁移失败将停在修复页，不会删除旧库或自动回退。") },
+        confirmButton = { TextButton(onClick = { confirmCutover = false; cutover() }) { Text("确认迁移") } },
+        dismissButton = { TextButton(onClick = { confirmCutover = false }) { Text("取消") } },
+    )
 }
 
 @Composable private fun HomeHeader(title: String, onAction: () -> Unit) {

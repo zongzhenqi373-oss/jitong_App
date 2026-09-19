@@ -529,6 +529,33 @@ int main()
         check(!third.hasMore && third.messages.size() == 1 && third.messages[0].msgId == "page-1",
               "末页 hasMore=false 且无漏读");
     }
+    // [20] 下载任务持久化：同账号消息授权、可恢复失败、取消终态与 generation 防迟到。
+    {
+        auto media=makeIncoming("download-media", 1001, "");
+        media.type=1;media.fileId="media-file-1";
+        media.sha256=std::string(64,'a');media.fileSize=4096;
+        check(repo.commitIncomingMessage(media,nullptr,&err),"媒体消息夹具入库 " + err);
+        check(!repo.beginDownloadTask(kOwner,"bad-task","download-media","foreign-id",
+                                      "/tmp/media.part",1,&err),"未被消息引用的 file_id 不入队");
+        check(repo.beginDownloadTask(kOwner,"download-1","download-media","media-file-1",
+                                     "/tmp/media.part",1,&err),"下载任务进入 Writer 队列 " + err);
+        std::vector<DownloadTaskRow> pending;
+        check(repo.listRecoverableDownloads(kOwner,&pending,&err)&&pending.size()==1&&
+              pending[0].expectedSha256==media.sha256,"重启快照带消息权威摘要");
+        check(repo.finishDownloadTask(kOwner,"download-1",1,2,1024,&err),"失败保留可恢复任务");
+        db.close();
+        check(db.open(kDir,kOwner,testKey(),&err),"重新打开加密库 " + err);
+        check(repo.listRecoverableDownloads(kOwner,&pending,&err)&&pending.size()==1&&
+              pending[0].transferred==1024,"重启后失败断点可读取");
+        check(repo.beginDownloadTask(kOwner,"download-2","download-media","media-file-1",
+                                     "/tmp/media.part",2,&err),"新 generation 接管旧任务");
+        check(!repo.finishDownloadTask(kOwner,"download-1",1,3,4096,&err),"旧任务迟到完成不能复活");
+        check(repo.finishDownloadTask(kOwner,"download-2",2,4,1024,&err),"取消成为终态");
+        check(repo.beginDownloadTask(kOwner,"download-3","download-media","media-file-1",
+                                     "/tmp/media.part",3,&err),"可创建新的显式请求");
+        check(repo.finishDownloadTask(kOwner,"download-3",3,5,0,&err),"无效 part 可标记 abandoned");
+        check(repo.listRecoverableDownloads(kOwner,&pending,&err)&&pending.empty(),"取消后不再恢复");
+    }
     db.close();
     check(db.status() == DbStatus::Closed, "关闭后 Closed");
 

@@ -5,6 +5,8 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
+#include <cctype>
 #include <memory>
 #include <limits>
 
@@ -219,7 +221,7 @@ bool NativeRepository::runTx(const DbCommandQueue::WriteFn& fn, std::string* err
         return false;
     }
     bool timedOut = false;
-    const CommandResult r = m_db->submitSync(fn, std::chrono::seconds(60), &timedOut);
+    const CommandResult r = m_db->submitBusinessSync(fn, std::chrono::seconds(60), &timedOut);
     if (timedOut) {
         if (err) *err = "等待 Writer 超时，操作状态未确定";
         return false;
@@ -228,6 +230,105 @@ bool NativeRepository::runTx(const DbCommandQueue::WriteFn& fn, std::string* err
         if (err) *err = std::string("写事务失败：") + toString(r);
         return false;
     }
+    return true;
+}
+
+bool NativeRepository::beginDownloadTask(std::int64_t ownerId,const std::string& taskId,
+    const std::string& msgId,const std::string& fileId,const std::string& localPath,
+    std::int64_t generation,std::string* err)
+{
+    if(ownerId<=0||generation<=0||taskId.empty()||msgId.empty()||fileId.empty()||
+       localPath.empty()||taskId.size()>128||fileId.size()>128){
+        if(err)*err="invalid download task";return false;
+    }
+    return runTx([&](sqlite3* db){
+        // 只有本账号已落库消息引用的媒体索引才能进入恢复队列。
+        sqlite3_stmt* check=nullptr;
+        const char* checkSql="SELECT CASE WHEN ?=file_id THEN sha256 "
+            "WHEN ?=thumbnail_file_id THEN thumbnail_sha256 "
+            "WHEN ?=large_thumbnail_file_id THEN large_thumbnail_sha256 ELSE '' END "
+            "FROM messages WHERE owner_id=? AND msg_id=? LIMIT 1";
+        if(sqlite3_prepare_v2(db,checkSql,-1,&check,nullptr)!=SQLITE_OK)return false;
+        for(int i=1;i<=3;++i)bindText(check,i,fileId);
+        sqlite3_bind_int64(check,4,ownerId);bindText(check,5,msgId);
+        bool authorized=false;
+        if(sqlite3_step(check)==SQLITE_ROW&&sqlite3_column_bytes(check,0)==64){
+            const auto* p=reinterpret_cast<const char*>(sqlite3_column_text(check,0));
+            authorized=p&&std::all_of(p,p+64,[](unsigned char c){return std::isxdigit(c)!=0;});
+        }
+        sqlite3_finalize(check);if(!authorized)return false;
+
+        sqlite3_stmt* old=nullptr;
+        const char* supersede="UPDATE transfer_tasks SET state=5,terminal_state=1,updated_at=strftime('%s','now') "
+            "WHERE owner_id=? AND direction=1 AND file_id=? AND terminal_state=0";
+        if(sqlite3_prepare_v2(db,supersede,-1,&old,nullptr)!=SQLITE_OK)return false;
+        sqlite3_bind_int64(old,1,ownerId);bindText(old,2,fileId);
+        const bool oldOk=sqlite3_step(old)==SQLITE_DONE;sqlite3_finalize(old);
+        if(!oldOk)return false;
+        sqlite3_stmt* st=nullptr;
+        const char* sql="INSERT INTO transfer_tasks(task_id,owner_id,msg_id,file_id,direction,"
+            "local_path,state,generation,phase,terminal_state,updated_at) "
+            "VALUES(?,?,?,?,1,?,0,?,0,0,strftime('%s','now'))";
+        if(sqlite3_prepare_v2(db,sql,-1,&st,nullptr)!=SQLITE_OK)return false;
+        bindText(st,1,taskId);sqlite3_bind_int64(st,2,ownerId);bindText(st,3,msgId);
+        bindText(st,4,fileId);bindText(st,5,localPath);sqlite3_bind_int64(st,6,generation);
+        const bool ok=sqlite3_step(st)==SQLITE_DONE;sqlite3_finalize(st);return ok;
+    },err);
+}
+
+bool NativeRepository::finishDownloadTask(std::int64_t ownerId,const std::string& taskId,
+    std::int64_t generation,int state,std::int64_t transferred,std::string* err)
+{
+    if(ownerId<=0||taskId.empty()||generation<=0||transferred<0||
+       (state!=1&&state!=2&&state!=3&&state!=4&&state!=5)){
+        if(err)*err="invalid download transition";return false;
+    }
+    return runTx([&](sqlite3* db){
+        sqlite3_stmt* st=nullptr;
+        const char* sql="UPDATE transfer_tasks SET state=?,transferred=?,offset_bytes=?,"
+            "terminal_state=?,updated_at=strftime('%s','now') WHERE task_id=? AND owner_id=? "
+            "AND direction=1 AND generation=? AND terminal_state=0";
+        if(sqlite3_prepare_v2(db,sql,-1,&st,nullptr)!=SQLITE_OK)return false;
+        sqlite3_bind_int(st,1,state);sqlite3_bind_int64(st,2,transferred);
+        sqlite3_bind_int64(st,3,transferred);sqlite3_bind_int(st,4,(state>=3)?1:0);
+        bindText(st,5,taskId);sqlite3_bind_int64(st,6,ownerId);sqlite3_bind_int64(st,7,generation);
+        const bool ok=sqlite3_step(st)==SQLITE_DONE&&sqlite3_changes(db)==1;
+        sqlite3_finalize(st);return ok;
+    },err);
+}
+
+bool NativeRepository::listRecoverableDownloads(std::int64_t ownerId,
+    std::vector<DownloadTaskRow>* out,std::string* err)
+{
+    if(out)out->clear();
+    if(!m_db||!out||ownerId<=0){if(err)*err="invalid download query";return false;}
+    bool queryOk=false;
+    const auto result=m_db->withRead([&](sqlite3* db){
+        sqlite3_stmt* st=nullptr;
+        const char* sql="SELECT t.task_id,t.msg_id,t.file_id,t.local_path,t.transferred,"
+            "t.generation,CASE WHEN t.file_id=m.file_id THEN m.sha256 "
+            "WHEN t.file_id=m.thumbnail_file_id THEN m.thumbnail_sha256 "
+            "ELSE m.large_thumbnail_sha256 END,"
+            "CASE WHEN t.file_id=m.file_id THEN m.file_size "
+            "WHEN t.file_id=m.thumbnail_file_id THEN m.thumbnail_size "
+            "ELSE m.large_thumbnail_size END "
+            "FROM transfer_tasks t JOIN messages m ON m.owner_id=t.owner_id AND m.msg_id=t.msg_id "
+            "WHERE t.owner_id=? AND t.direction=1 AND t.terminal_state=0 AND t.state IN(0,1,2) "
+            "AND (t.file_id=m.file_id OR t.file_id=m.thumbnail_file_id OR "
+            "t.file_id=m.large_thumbnail_file_id) ORDER BY t.updated_at LIMIT 128";
+        if(sqlite3_prepare_v2(db,sql,-1,&st,nullptr)!=SQLITE_OK)return;
+        sqlite3_bind_int64(st,1,ownerId);int rc=SQLITE_OK;
+        while((rc=sqlite3_step(st))==SQLITE_ROW){
+            auto str=[&](int i){const auto* p=sqlite3_column_text(st,i);
+                return p?std::string(reinterpret_cast<const char*>(p),sqlite3_column_bytes(st,i)):std::string();};
+            DownloadTaskRow row;row.taskId=str(0);row.msgId=str(1);row.fileId=str(2);
+            row.localPath=str(3);row.transferred=sqlite3_column_int64(st,4);
+            row.generation=sqlite3_column_int64(st,5);row.expectedSha256=str(6);
+            row.totalSize=sqlite3_column_int64(st,7);out->push_back(std::move(row));
+        }
+        queryOk=rc==SQLITE_DONE;sqlite3_finalize(st);
+    });
+    if(result!=ReadResult::Ok||!queryOk){out->clear();if(err)*err="download query unavailable";return false;}
     return true;
 }
 
@@ -1261,6 +1362,369 @@ bool NativeRepository::loadMessageSeqRanges(std::int64_t ownerId,std::int64_t co
         ok=rc==SQLITE_DONE;sqlite3_finalize(st);
     });
     if(result!=ReadResult::Ok||!ok){out->clear();if(err)*err="seq range database unavailable";return false;}
+    return true;
+}
+
+// ---------------- 分片上传草稿（P7 媒体断点续传） ----------------
+
+namespace {
+
+std::string joinChunkIndices(const std::vector<std::int32_t>& idx)
+{
+    std::string out;
+    for (std::int32_t i : idx) {
+        if (!out.empty()) out += ',';
+        out += std::to_string(i);
+    }
+    return out;
+}
+
+std::vector<std::int32_t> splitChunkIndices(const std::string& s)
+{
+    std::vector<std::int32_t> out;
+    std::size_t start = 0;
+    while (start < s.size()) {
+        const std::size_t comma = s.find(',', start);
+        const std::string part = s.substr(start, comma == std::string::npos ? comma : comma - start);
+        if (!part.empty()) {
+            try { out.push_back(std::stoi(part)); } catch (...) { return {}; }
+        }
+        if (comma == std::string::npos) break;
+        start = comma + 1;
+    }
+    return out;
+}
+
+} // namespace
+
+bool NativeRepository::upsertUploadDraft(std::int64_t ownerId,
+                                         const im::dto::UploadDraftDto& d, bool* inserted,
+                                         std::string* err)
+{
+    if (inserted) *inserted = false;
+    if (ownerId <= 0 || d.msgId.empty() || d.conversationId <= 0 || d.peerId <= 0 ||
+        d.localPath.empty() || d.fileSize <= 0 || d.sha256.size() != 64 ||
+        d.imageWidth < 0 || d.imageHeight < 0 ||
+        d.imageWidth > 100000 || d.imageHeight > 100000) {
+        if (err) *err = "invalid upload draft";
+        return false;
+    }
+    auto draft = std::make_shared<im::dto::UploadDraftDto>(d);
+    auto ins = std::make_shared<bool>(false);
+    const bool ok = runTx([ownerId, draft, ins](sqlite3* db) -> bool {
+        sqlite3_stmt* s = nullptr;
+        // 幂等：已存在则保留进度（upload_id/chunks_done/file_id/state 不重置）
+        const char* sql =
+            "INSERT INTO upload_drafts(owner_id,msg_id,variant,conversation_id,peer_id,local_path,"
+            "file_name,file_size,sha256,content_type,upload_id,chunk_size,chunk_count,chunks_done,"
+            "file_id,state,error_code,created_at,updated_at,image_width,image_height) "
+            "VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'',0,0,'','',?11,?12,?13,?13,?14,?15) "
+            "ON CONFLICT(owner_id,msg_id,variant) DO NOTHING";
+        if (sqlite3_prepare_v2(db, sql, -1, &s, nullptr) != SQLITE_OK || !s) return false;
+        sqlite3_bind_int64(s, 1, ownerId);
+        bindText(s, 2, draft->msgId);
+        sqlite3_bind_int(s, 3, static_cast<int>(draft->variant));
+        sqlite3_bind_int64(s, 4, draft->conversationId);
+        sqlite3_bind_int64(s, 5, draft->peerId);
+        bindText(s, 6, draft->localPath);
+        bindText(s, 7, draft->fileName);
+        sqlite3_bind_int64(s, 8, draft->fileSize);
+        bindText(s, 9, draft->sha256);
+        bindText(s, 10, draft->contentType);
+        sqlite3_bind_int(s, 11, static_cast<int>(im::dto::UploadDraftState::Pending));
+        sqlite3_bind_int(s, 12, 0);
+        sqlite3_bind_int64(s, 13, draft->createdAt > 0 ? draft->createdAt
+                                                       : static_cast<std::int64_t>(std::time(nullptr)));
+        sqlite3_bind_int(s, 14, draft->imageWidth);
+        sqlite3_bind_int(s, 15, draft->imageHeight);
+        const bool stepped = sqlite3_step(s) == SQLITE_DONE;
+        *ins = sqlite3_changes(db) > 0;
+        sqlite3_finalize(s);
+        return stepped;
+    }, err);
+    if (inserted) *inserted = ok && *ins;
+    return ok;
+}
+
+bool NativeRepository::setUploadDraftSession(std::int64_t ownerId, const std::string& msgId,
+                                             im::dto::MediaVariant variant,
+                                             const std::string& uploadId,
+                                             std::int64_t chunkSize, std::int32_t chunkCount,
+                                             std::string* err)
+{
+    if (ownerId <= 0 || msgId.empty() || uploadId.empty() || chunkSize <= 0 || chunkCount <= 0) {
+        if (err) *err = "invalid draft session";
+        return false;
+    }
+    return runTx([=, this](sqlite3* db) -> bool {
+        sqlite3_stmt* s = nullptr;
+        // 只允许 Pending/Uploading/Failed → Uploading；终态与 Finalized 不可回退
+        const char* sql =
+            "UPDATE upload_drafts SET upload_id=?4,chunk_size=?5,chunk_count=?6,"
+            "state=?7,error_code=0,updated_at=?8 "
+            "WHERE owner_id=?1 AND msg_id=?2 AND variant=?3 AND state IN(0,1,5)";
+        if (sqlite3_prepare_v2(db, sql, -1, &s, nullptr) != SQLITE_OK || !s) return false;
+        sqlite3_bind_int64(s, 1, ownerId);
+        bindText(s, 2, msgId);
+        sqlite3_bind_int(s, 3, static_cast<int>(variant));
+        bindText(s, 4, uploadId);
+        sqlite3_bind_int64(s, 5, chunkSize);
+        sqlite3_bind_int(s, 6, chunkCount);
+        sqlite3_bind_int(s, 7, static_cast<int>(im::dto::UploadDraftState::Uploading));
+        sqlite3_bind_int64(s, 8, static_cast<std::int64_t>(std::time(nullptr)));
+        // 0 行命中 = 状态不允许（终态/Finalized 回退），必须返回失败而非静默成功
+        const bool ok = sqlite3_step(s) == SQLITE_DONE && sqlite3_changes(db) == 1;
+        sqlite3_finalize(s);
+        return ok;
+    }, err);
+}
+
+bool NativeRepository::markUploadChunkDone(std::int64_t ownerId, const std::string& msgId,
+                                           im::dto::MediaVariant variant,
+                                           std::int32_t chunkIndex, std::string* err)
+{
+    if (ownerId <= 0 || msgId.empty() || chunkIndex < 0) {
+        if (err) *err = "invalid chunk mark";
+        return false;
+    }
+    return runTx([=, this](sqlite3* db) -> bool {
+        // 读-改-写在同一写事务：重复分片号幂等
+        sqlite3_stmt* s = nullptr;
+        const char* q = "SELECT chunks_done,chunk_count,state FROM upload_drafts "
+                        "WHERE owner_id=?1 AND msg_id=?2 AND variant=?3";
+        if (sqlite3_prepare_v2(db, q, -1, &s, nullptr) != SQLITE_OK || !s) return false;
+        sqlite3_bind_int64(s, 1, ownerId);
+        bindText(s, 2, msgId);
+        sqlite3_bind_int(s, 3, static_cast<int>(variant));
+        if (sqlite3_step(s) != SQLITE_ROW) { sqlite3_finalize(s); return false; }
+        const unsigned char* p = sqlite3_column_text(s, 0);
+        auto done = splitChunkIndices(p ? reinterpret_cast<const char*>(p) : "");
+        const int count = sqlite3_column_int(s, 1);
+        const int state = sqlite3_column_int(s, 2);
+        sqlite3_finalize(s);
+        if (chunkIndex >= count) return false;
+        if (state == static_cast<int>(im::dto::UploadDraftState::Sent) ||
+            state == static_cast<int>(im::dto::UploadDraftState::Cancelled)) return false;
+        if (std::find(done.begin(), done.end(), chunkIndex) == done.end()) {
+            done.push_back(chunkIndex);
+            std::sort(done.begin(), done.end());
+        }
+        const std::string joined = joinChunkIndices(done);
+        const char* u = "UPDATE upload_drafts SET chunks_done=?4,updated_at=?5 "
+                        "WHERE owner_id=?1 AND msg_id=?2 AND variant=?3";
+        if (sqlite3_prepare_v2(db, u, -1, &s, nullptr) != SQLITE_OK || !s) return false;
+        sqlite3_bind_int64(s, 1, ownerId);
+        bindText(s, 2, msgId);
+        sqlite3_bind_int(s, 3, static_cast<int>(variant));
+        bindText(s, 4, joined);
+        sqlite3_bind_int64(s, 5, static_cast<std::int64_t>(std::time(nullptr)));
+        const bool ok = sqlite3_step(s) == SQLITE_DONE;
+        sqlite3_finalize(s);
+        return ok;
+    }, err);
+}
+
+bool NativeRepository::setUploadDraftFileId(std::int64_t ownerId, const std::string& msgId,
+                                            im::dto::MediaVariant variant,
+                                            const std::string& fileId, std::string* err)
+{
+    if (ownerId <= 0 || msgId.empty() || fileId.empty()) {
+        if (err) *err = "invalid draft fileId";
+        return false;
+    }
+    return runTx([=, this](sqlite3* db) -> bool {
+        sqlite3_stmt* s = nullptr;
+        // Uploading/Failed/Pending → Finalized；已 Finalized 且同 file_id 幂等
+        const char* sql =
+            "UPDATE upload_drafts SET file_id=?4,state=?5,error_code=0,updated_at=?6 "
+            "WHERE owner_id=?1 AND msg_id=?2 AND variant=?3 AND "
+            "(state IN(0,1,5) OR (state=2 AND file_id=?4))";
+        if (sqlite3_prepare_v2(db, sql, -1, &s, nullptr) != SQLITE_OK || !s) return false;
+        sqlite3_bind_int64(s, 1, ownerId);
+        bindText(s, 2, msgId);
+        sqlite3_bind_int(s, 3, static_cast<int>(variant));
+        bindText(s, 4, fileId);
+        sqlite3_bind_int(s, 5, static_cast<int>(im::dto::UploadDraftState::Finalized));
+        sqlite3_bind_int64(s, 6, static_cast<std::int64_t>(std::time(nullptr)));
+        // 0 行命中 = 草稿不存在/终态/不同 file_id 冲突，必须失败
+        const bool ok = sqlite3_step(s) == SQLITE_DONE && sqlite3_changes(db) == 1;
+        sqlite3_finalize(s);
+        return ok;
+    }, err);
+}
+
+bool NativeRepository::resetUploadDraftForNewSession(std::int64_t ownerId,
+                                                     const std::string& msgId,
+                                                     im::dto::MediaVariant variant,
+                                                     const std::string& uploadId,
+                                                     std::int64_t chunkSize,
+                                                     std::int32_t chunkCount, std::string* err)
+{
+    if (ownerId <= 0 || msgId.empty() || uploadId.empty() || chunkSize <= 0 || chunkCount <= 0) {
+        if (err) *err = "invalid reset session";
+        return false;
+    }
+    return runTx([=, this](sqlite3* db) -> bool {
+        sqlite3_stmt* s = nullptr;
+        // 仅允许从非终态重置（服务端会话丢失后的恢复路径）
+        const char* sql =
+            "UPDATE upload_drafts SET upload_id=?4,chunk_size=?5,chunk_count=?6,chunks_done='',"
+            "file_id='',state=?7,error_code=0,updated_at=?8 "
+            "WHERE owner_id=?1 AND msg_id=?2 AND variant=?3 AND state IN(0,1,5)";
+        if (sqlite3_prepare_v2(db, sql, -1, &s, nullptr) != SQLITE_OK || !s) return false;
+        sqlite3_bind_int64(s, 1, ownerId);
+        bindText(s, 2, msgId);
+        sqlite3_bind_int(s, 3, static_cast<int>(variant));
+        bindText(s, 4, uploadId);
+        sqlite3_bind_int64(s, 5, chunkSize);
+        sqlite3_bind_int(s, 6, chunkCount);
+        sqlite3_bind_int(s, 7, static_cast<int>(im::dto::UploadDraftState::Uploading));
+        sqlite3_bind_int64(s, 8, static_cast<std::int64_t>(std::time(nullptr)));
+        const bool ok = sqlite3_step(s) == SQLITE_DONE && sqlite3_changes(db) == 1;
+        sqlite3_finalize(s);
+        return ok;
+    }, err);
+}
+
+bool NativeRepository::setUploadDraftState(std::int64_t ownerId, const std::string& msgId,
+                                           im::dto::MediaVariant variant,
+                                           im::dto::UploadDraftState state,
+                                           std::int32_t errorCode, std::string* err)
+{
+    if (ownerId <= 0 || msgId.empty()) {
+        if (err) *err = "invalid draft state";
+        return false;
+    }
+    return runTx([=, this](sqlite3* db) -> bool {
+        sqlite3_stmt* s = nullptr;
+        // 终态保护：Sent/Cancelled 后不可再迁移
+        const char* sql =
+            "UPDATE upload_drafts SET state=?4,error_code=?5,updated_at=?6 "
+            "WHERE owner_id=?1 AND msg_id=?2 AND variant=?3 AND state NOT IN(3,4)";
+        if (sqlite3_prepare_v2(db, sql, -1, &s, nullptr) != SQLITE_OK || !s) return false;
+        sqlite3_bind_int64(s, 1, ownerId);
+        bindText(s, 2, msgId);
+        sqlite3_bind_int(s, 3, static_cast<int>(variant));
+        sqlite3_bind_int(s, 4, static_cast<int>(state));
+        sqlite3_bind_int(s, 5, errorCode);
+        sqlite3_bind_int64(s, 6, static_cast<std::int64_t>(std::time(nullptr)));
+        // 0 行命中 = 草稿不存在或已终态（Sent/Cancelled 不可再迁移），必须失败
+        const bool ok = sqlite3_step(s) == SQLITE_DONE && sqlite3_changes(db) == 1;
+        sqlite3_finalize(s);
+        return ok;
+    }, err);
+}
+
+bool NativeRepository::getUploadDraft(std::int64_t ownerId, const std::string& msgId,
+                                      im::dto::MediaVariant variant,
+                                      im::dto::UploadDraftDto* out, std::string* err)
+{
+    if (!out || ownerId <= 0 || msgId.empty()) {
+        if (err) *err = "invalid get draft";
+        return false;
+    }
+    std::vector<im::dto::UploadDraftDto> one;
+    // 复用读路径：按主键过滤
+    bool found = false;
+    const ReadResult rr = m_db->withRead([&](sqlite3* db) {
+        sqlite3_stmt* s = nullptr;
+        const char* sql =
+            "SELECT msg_id,variant,conversation_id,peer_id,local_path,file_name,file_size,sha256,"
+            "content_type,upload_id,chunk_size,chunk_count,chunks_done,file_id,state,error_code,"
+            "created_at,updated_at,image_width,image_height FROM upload_drafts "
+            "WHERE owner_id=?1 AND msg_id=?2 AND variant=?3";
+        if (sqlite3_prepare_v2(db, sql, -1, &s, nullptr) != SQLITE_OK) return;
+        sqlite3_bind_int64(s, 1, ownerId);
+        bindText(s, 2, msgId);
+        sqlite3_bind_int(s, 3, static_cast<int>(variant));
+        if (sqlite3_step(s) == SQLITE_ROW) {
+            auto text = [&](int i) { const auto* t = sqlite3_column_text(s, i); return t ?
+                std::string(reinterpret_cast<const char*>(t), sqlite3_column_bytes(s, i)) : std::string(); };
+            out->msgId = text(0);
+            out->variant = static_cast<im::dto::MediaVariant>(sqlite3_column_int(s, 1));
+            out->conversationId = sqlite3_column_int64(s, 2);
+            out->peerId = sqlite3_column_int64(s, 3);
+            out->localPath = text(4);
+            out->fileName = text(5);
+            out->fileSize = sqlite3_column_int64(s, 6);
+            out->sha256 = text(7);
+            out->contentType = text(8);
+            out->uploadId = text(9);
+            out->chunkSize = sqlite3_column_int64(s, 10);
+            out->chunkCount = sqlite3_column_int(s, 11);
+            out->chunksDone = splitChunkIndices(text(12));
+            out->fileId = text(13);
+            out->state = static_cast<im::dto::UploadDraftState>(sqlite3_column_int(s, 14));
+            out->errorCode = sqlite3_column_int(s, 15);
+            out->createdAt = sqlite3_column_int64(s, 16);
+            out->updatedAt = sqlite3_column_int64(s, 17);
+            out->imageWidth = sqlite3_column_int(s, 18);
+            out->imageHeight = sqlite3_column_int(s, 19);
+            found = true;
+        }
+        sqlite3_finalize(s);
+    });
+    if (rr != ReadResult::Ok) {
+        if (err) *err = "draft database unavailable";
+        return false;
+    }
+    return found;
+}
+
+bool NativeRepository::loadActiveUploadDrafts(std::int64_t ownerId,
+                                              std::vector<im::dto::UploadDraftDto>* out,
+                                              std::string* err)
+{
+    if (out) out->clear();
+    if (!m_db || !out || ownerId <= 0) {
+        if (err) *err = "invalid load drafts";
+        return false;
+    }
+    bool queryOk = false;
+    const ReadResult rr = m_db->withRead([&](sqlite3* db) {
+        sqlite3_stmt* s = nullptr;
+        const char* sql =
+            "SELECT msg_id,variant,conversation_id,peer_id,local_path,file_name,file_size,sha256,"
+            "content_type,upload_id,chunk_size,chunk_count,chunks_done,file_id,state,error_code,"
+            "created_at,updated_at,image_width,image_height FROM upload_drafts "
+            "WHERE owner_id=?1 AND state IN(0,1,2,5) ORDER BY updated_at";
+        if (sqlite3_prepare_v2(db, sql, -1, &s, nullptr) != SQLITE_OK) return;
+        sqlite3_bind_int64(s, 1, ownerId);
+        int rc = SQLITE_OK;
+        while ((rc = sqlite3_step(s)) == SQLITE_ROW) {
+            auto text = [&](int i) { const auto* t = sqlite3_column_text(s, i); return t ?
+                std::string(reinterpret_cast<const char*>(t), sqlite3_column_bytes(s, i)) : std::string(); };
+            im::dto::UploadDraftDto d;
+            d.msgId = text(0);
+            d.variant = static_cast<im::dto::MediaVariant>(sqlite3_column_int(s, 1));
+            d.conversationId = sqlite3_column_int64(s, 2);
+            d.peerId = sqlite3_column_int64(s, 3);
+            d.localPath = text(4);
+            d.fileName = text(5);
+            d.fileSize = sqlite3_column_int64(s, 6);
+            d.sha256 = text(7);
+            d.contentType = text(8);
+            d.uploadId = text(9);
+            d.chunkSize = sqlite3_column_int64(s, 10);
+            d.chunkCount = sqlite3_column_int(s, 11);
+            d.chunksDone = splitChunkIndices(text(12));
+            d.fileId = text(13);
+            d.state = static_cast<im::dto::UploadDraftState>(sqlite3_column_int(s, 14));
+            d.errorCode = sqlite3_column_int(s, 15);
+            d.createdAt = sqlite3_column_int64(s, 16);
+            d.updatedAt = sqlite3_column_int64(s, 17);
+            d.imageWidth = sqlite3_column_int(s, 18);
+            d.imageHeight = sqlite3_column_int(s, 19);
+            out->push_back(std::move(d));
+        }
+        queryOk = rc == SQLITE_DONE;
+        sqlite3_finalize(s);
+    });
+    if (rr != ReadResult::Ok || !queryOk) {
+        out->clear();
+        if (err) *err = "draft database unavailable";
+        return false;
+    }
     return true;
 }
 

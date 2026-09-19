@@ -15,14 +15,14 @@ import java.nio.charset.CodingErrorAction
 import com.jitong.im.util.PinyinIndex
 
 /**
- * C++ Native 内核的 Kotlin 门面（P2 首阶段：生命周期 + 自检）。
+ * C++ Native 内核的 Kotlin 门面。
  *
  * 职责边界（V3 计划 §3.2）：
  *   - 只做句柄管理与事件投递；
  *   - **不做** Token 判断、登录重试、消息去重、数据库双写、文件重试、缩略图选择。
  *
- * 首阶段不接管任何业务：UI 仍走 Kotlin Legacy，
- * [KernelBackendSelector] 保持 [KernelBackend.KOTLIN_LEGACY]。
+ * 是否接管业务由进程启动时冻结的 [KernelBackendSelector] 与 cutover 状态共同决定；本类自身
+ * 不创建 Legacy 后端，也不允许运行期热切换。
  */
 class JitongSdk internal constructor() {
     @Volatile private var runtimeOwnerId: Long = 0
@@ -90,6 +90,24 @@ class JitongSdk internal constructor() {
     data class NativeConversation(
         val conversationId: Long,val ownerId: Long,val peerId: Long,
         val lastMessage: String,val lastMessageTime: Long,val unread: Long,
+    )
+    data class NativeFriend(
+        val friendId: Long,
+        val nick: String,
+        val tel: String,
+        val avatar: String,
+        val signature: String,
+        val sex: Int,
+        val online: Boolean,
+    )
+    data class NativeFriendRequest(
+        val requestId: String,
+        val fromUserId: Long,
+        val toUserId: Long,
+        val direction: Int,
+        val state: Int,
+        val message: String,
+        val createdAt: Long,
     )
 
     private val sink = NativeEventSink()
@@ -223,6 +241,18 @@ class JitongSdk internal constructor() {
     }
 
     /**
+     * 一次性注册（先于认证）。返回 false 表示本地拒绝（未就绪/账号非空闲/参数非法）；
+     * true 仅表示已提交，结果经 [events] 的 [CoreEvent.RegisterResult] 异步到达：
+     * 1=成功，2=昵称占用，3=手机号已注册，0=本地连接失败。
+     */
+    fun register(nick: String, tel: String, pass: String): Boolean {
+        val current = handle
+        if (current == 0L || !accountReady) return false
+        if (nick.isBlank() || tel.isBlank() || pass.isBlank()) return false
+        return NativeBindings.nativeAccountRegister(current, nick, tel, pass)
+    }
+
+    /**
      * 冷启动便捷入口：只组装 Native 认证会话并尝试恢复加密凭据。
      * 返回 0 表示本地无有效凭据，调用方应停留登录页；这里不会回退到软件密钥或明文存储。
      */
@@ -288,6 +318,38 @@ class JitongSdk internal constructor() {
         val current = handle
         if (current == 0L) return "err|NotOpen|句柄无效"
         return NativeBindings.nativeSubmitConversationBatch(current, batch, checkpoint)
+    }
+
+    fun seedLegacyDeltaCheckpoint(epoch:Long,baseline:Long,updatedAt:Long):String {
+        val current=handle
+        if(current==0L)return "err|NotOpen|句柄无效"
+        return NativeBindings.nativeSeedLegacyDeltaCheckpoint(current,epoch,baseline,updatedAt)
+    }
+
+    fun getLegacyDeltaCheckpoint(epoch:Long):String {
+        val current=handle
+        if(current==0L)return "err|NotOpen|句柄无效"
+        return NativeBindings.nativeGetLegacyDeltaCheckpoint(current,epoch)
+    }
+
+    fun submitLegacyDeltaBatch(epoch:Long,expectedAfter:Long,batch:ByteArray):String {
+        val current=handle
+        if(current==0L)return "err|NotOpen|句柄无效"
+        return NativeBindings.nativeSubmitLegacyDeltaBatch(current,epoch,expectedAfter,batch)
+    }
+
+    fun getCutoverJournal():String {
+        val current=handle
+        if(current==0L)return "err|NotOpen|句柄无效"
+        return NativeBindings.nativeGetCutoverJournal(current)
+    }
+
+    fun advanceCutoverJournal(epoch:Long,expectedState:Int,targetState:Int,highWater:Long,
+        schemaVersion:Int,keyId:String,summary:String,updatedAt:Long):String {
+        val current=handle
+        if(current==0L)return "err|NotOpen|句柄无效"
+        return NativeBindings.nativeAdvanceCutoverJournal(current,epoch,expectedState,targetState,
+            highWater,schemaVersion,keyId,summary,updatedAt)
     }
 
     /** 全量对账并写完成标记。 */
@@ -491,6 +553,13 @@ class JitongSdk internal constructor() {
         runtimeGeneration=0;runtimeOwnerId=0;_dataVersions.value=emptyMap()
     }
 
+    /** 摘除账号 Runtime，保留认证会话；用于登出后换号，避免复用旧 owner Runtime。 */
+    fun destroyRuntime() {
+        val current = handle
+        runtimeGeneration=0;runtimeOwnerId=0;_dataVersions.value=emptyMap()
+        if (current != 0L) NativeBindings.nativeDestroyRuntime(current)
+    }
+
     /** Runtime 状态名：Idle/Starting/Running/Stopping/Stopped/Destroyed/None。 */
     fun runtimeState(): String {
         val current = handle
@@ -517,6 +586,115 @@ class JitongSdk internal constructor() {
             SendTextReceipt(true,parts[1],parts[2],parts[3].toLongOrNull()?:0)
         else SendTextReceipt(false,parts.getOrElse(1){""},parts.getOrElse(2){""},0,
             parts.getOrElse(3){"native send rejected"})
+    }
+
+    fun beginMediaOperation():Long = handle.takeIf { it!=0L }
+        ?.let(NativeBindings::nativeBeginMediaOperation) ?: 0L
+
+    data class RecoverableDownload(val taskId:String,val msgId:String,val fileId:String,
+        val localPath:String,val sha256:String,val totalSize:Long,val transferred:Long,
+        val generation:Long)
+
+    fun beginDownloadTask(taskId:String,msgId:String,fileId:String,localPath:String):Long {
+        val current=handle
+        val generation=runtimeGeneration
+        return if(current!=0L&&generation>0&&NativeBindings.nativeBeginDownloadTask(
+            current,taskId,msgId,fileId,localPath,generation))generation else 0L
+    }
+
+    /** 1=running, 2=retryable failure, 3=completed, 4=cancelled, 5=abandoned. */
+    fun finishDownloadTask(taskId:String,generation:Long,state:Int,transferred:Long):Boolean {
+        val current=handle
+        return current!=0L&&generation>0&&NativeBindings.nativeFinishDownloadTask(
+            current,taskId,generation,state,transferred.coerceAtLeast(0))
+    }
+
+    fun recoverableDownloads():List<RecoverableDownload> {
+        val current=handle;if(current==0L)return emptyList()
+        val raw=NativeBindings.nativeListRecoverableDownloads(current)?:return emptyList()
+        return decodeList(raw,0x4A54444C){ input,string ->
+            val taskId=string();val msgId=string();val fileId=string()
+            val path=string();val hash=string()
+            require(input.remaining()>=24)
+            RecoverableDownload(taskId,msgId,fileId,path,hash,input.long,input.long,input.long)
+        } ?: emptyList()
+    }
+
+    fun cancelMediaOperation(operation:Long) {
+        if(handle!=0L&&operation>0)NativeBindings.nativeCancelMediaOperation(handle,operation)
+    }
+
+    fun endMediaOperation(operation:Long) {
+        if(handle!=0L&&operation>0)NativeBindings.nativeEndMediaOperation(handle,operation)
+    }
+
+    fun uploadMedia(path:String,receiverId:Long,isImage:Boolean,operation:Long):String {
+        val current=handle
+        return if(current==0L||operation<=0||receiverId<=0||path.isBlank())""
+        else NativeBindings.nativeRuntimeUploadMedia(current,operation,path,receiverId,isImage)
+    }
+
+    fun downloadMedia(fileId:String,destination:String,operation:Long):Boolean {
+        val current=handle
+        return current!=0L&&operation>0&&fileId.isNotBlank()&&destination.isNotBlank()&&
+            NativeBindings.nativeRuntimeDownloadMedia(current,operation,fileId,destination)
+    }
+
+    // ---------------- 分片上传（断点续传） ----------------
+    /** variant：0=原图/文件 1=大缩略图 2=小缩略图（MediaVariant 序）。 */
+    fun enqueueUpload(msgId:String,conversationId:Long,peerId:Long,variant:Int,
+                      localPath:String,fileName:String,contentType:String,
+                      imageWidth:Int=0,imageHeight:Int=0):Boolean {
+        val current=handle
+        if(current==0L||msgId.isBlank()||conversationId<=0||peerId<=0||localPath.isBlank())return false
+        return NativeBindings.nativeMediaEnqueueUpload(current,msgId,conversationId,peerId,
+            variant,localPath,fileName,contentType,imageWidth,imageHeight)=="ok"
+    }
+
+    /** 推进上传直到 Sent/Failed（阻塞，IO 线程调用）。 */
+    fun pumpUpload(msgId:String):Boolean {
+        val current=handle
+        return current!=0L&&msgId.isNotBlank()&&
+            NativeBindings.nativeMediaPumpUpload(current,msgId)=="ok"
+    }
+
+    /** 启动/网络恢复时恢复全部活跃上传草稿（阻塞，IO 线程调用）。 */
+    fun resumeUploads():Int {
+        val current=handle
+        return if(current==0L)0 else NativeBindings.nativeMediaResumeUploads(current)
+    }
+
+    /** 用户主动取消（终态，不自动恢复）。 */
+    fun cancelUpload(msgId:String):Boolean {
+        val current=handle
+        return current!=0L&&msgId.isNotBlank()&&
+            NativeBindings.nativeMediaCancelUpload(current,msgId)
+    }
+
+    /** 上传进度快照；无草稿返回 null。 */
+    fun uploadState(msgId:String):String? {
+        val current=handle
+        if(current==0L||msgId.isBlank())return null
+        return NativeBindings.nativeMediaUploadState(current,msgId).takeIf{it.isNotEmpty()}
+    }
+
+    fun sendMedia(conversationId:Long,peerId:Long,type:Int,fileId:String,fileName:String,
+        fileSize:Long,contentType:String,sha256:String,width:Int=0,height:Int=0,localPath:String="",
+        thumbnailFileId:String="",thumbnailSize:Long=0,thumbnailSha256:String="",
+        thumbnailWidth:Int=0,thumbnailHeight:Int=0,largeThumbnailFileId:String="",
+        largeThumbnailSize:Long=0,largeThumbnailSha256:String="",largeThumbnailWidth:Int=0,
+        largeThumbnailHeight:Int=0):SendTextReceipt {
+        val current=handle
+        if(current==0L)return SendTextReceipt(false,"","",0,"runtime unavailable")
+        val raw=NativeBindings.nativeRuntimeSendMedia(current,conversationId,peerId,type,fileId,
+            fileName,fileSize,contentType,sha256,width,height,localPath,thumbnailFileId,thumbnailSize,
+            thumbnailSha256,thumbnailWidth,thumbnailHeight,largeThumbnailFileId,largeThumbnailSize,
+            largeThumbnailSha256,largeThumbnailWidth,largeThumbnailHeight)
+        val parts=raw.split('|',limit=5)
+        return if(parts.firstOrNull()=="ok"&&parts.size==4)
+            SendTextReceipt(true,parts[1],parts[2],parts[3].toLongOrNull()?:0)
+        else SendTextReceipt(false,parts.getOrElse(1){""},parts.getOrElse(2){""},0,
+            parts.getOrElse(3){"native media rejected"})
     }
 
     /** 已读意图：Native 原子更新 read watermark/unread，并通过 operationEvents 返回终态。 */
@@ -568,6 +746,72 @@ class JitongSdk internal constructor() {
         val current=handle
         return current!=0L&&NativeBindings.nativeRuntimeRequestRoamConversations(current)
     }
+
+    /** 好友事实快照；Presence 只在 Native 内存合并，不写入好友事实表。 */
+    fun loadFriends(): List<NativeFriend>? {
+        val current = handle
+        if (current == 0L) return null
+        val raw = NativeBindings.nativeRuntimeLoadFriends(current) ?: return null
+        return decodeList(raw, 0x4A544644) { input, string ->
+            val id=input.long
+            val nick=string();val tel=string();val avatar=string();val signature=string()
+            val sex=input.int;val online=input.int.also { require(it==0||it==1) }==1
+            require(id>0)
+            NativeFriend(id,nick,tel,avatar,signature,sex,online)
+        }
+    }
+
+    fun loadFriendRequests(): List<NativeFriendRequest>? {
+        val current = handle
+        if (current == 0L) return null
+        val raw = NativeBindings.nativeRuntimeLoadFriendRequests(current) ?: return null
+        return decodeList(raw, 0x4A544652) { input, string ->
+            val requestId=string();val from=input.long;val to=input.long
+            val direction=input.int;val state=input.int;val message=string();val created=input.long
+            require(requestId.isNotEmpty()&&from>0&&to>0&&direction in 0..1&&state in 0..3)
+            NativeFriendRequest(requestId,from,to,direction,state,message,created)
+        }
+    }
+
+    fun requestFriendRequests(): Boolean {
+        val current=handle
+        return current!=0L&&NativeBindings.nativeRuntimeRequestFriendRequests(current)
+    }
+
+    fun sendAddFriend(nick: String): Boolean {
+        val current=handle
+        return current!=0L&&nick.isNotBlank()&&NativeBindings.nativeRuntimeSendAddFriend(current,nick.trim())
+    }
+
+    fun answerFriend(requesterId:Long,requesterNick:String,agree:Boolean):Boolean {
+        val current=handle
+        return current!=0L&&requesterId>0&&NativeBindings.nativeRuntimeAnswerFriend(
+            current,requesterId,requesterNick,agree)
+    }
+
+    fun deleteFriend(friendId:Long):Boolean {
+        val current=handle
+        return current!=0L&&friendId>0&&NativeBindings.nativeRuntimeDeleteFriend(current,friendId)
+    }
+
+    private fun <T> decodeList(
+        raw: ByteArray,
+        magic: Int,
+        read: (ByteBuffer, () -> String) -> T,
+    ): List<T>? = runCatching {
+        val input=ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN)
+        fun need(size:Int)=require(size>=0&&input.remaining()>=size)
+        fun string():String {
+            need(4);val size=input.int;require(size in 0..1_048_576);need(size)
+            val bytes=ByteArray(size);input.get(bytes)
+            return Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(bytes)).toString()
+        }
+        need(12);require(input.int==magic);require(input.int==1)
+        val count=input.int;require(count in 0..100_000)
+        List(count){read(input,::string)}.also { require(!input.hasRemaining()) }
+    }.getOrNull()
 
     /** 按服务端 conversation seq 游标拉取历史；首次可传 Long.MAX_VALUE。 */
     fun requestRoamMessages(peerId: Long,beforeSeq: Long=Long.MAX_VALUE,limit: Int=20): Boolean {

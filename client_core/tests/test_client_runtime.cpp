@@ -340,6 +340,19 @@ int main()
             im::storage::NativeRepository repo(db); im::dto::MessageDto stored;
             check(repo.findMessage(1,sent.msgId,&stored)&&stored.status==0&&stored.content=="你好",
                   "断网消息为 SENDING 且正文可查询");
+            im::dto::MessageDto image;image.conversationId=9;image.peerId=9;image.type=1;
+            image.fileId="origin-id";image.fileName="photo.jpg";image.fileSize=1024;
+            image.contentType="image/jpeg";image.sha256=std::string(64,'a');image.imgW=1200;image.imgH=800;
+            image.thumbnailFileId="small-id";image.thumbnailSize=128;image.thumbnailSha256=std::string(64,'b');
+            image.thumbnailW=240;image.thumbnailH=180;image.largeThumbnailFileId="large-id";
+            image.largeThumbnailSize=512;image.largeThumbnailSha256=std::string(64,'c');
+            image.largeThumbnailW=960;image.largeThumbnailH=640;image.localPath="/account/media/photo.jpg";
+            const auto media=rt->sendMedia(image);
+            check(media.accepted&&!media.msgId.empty(),"媒体卡片先落 Native Outbox");
+            check(repo.findMessage(1,media.msgId,&stored)&&stored.type==1&&
+                  stored.fileId=="origin-id"&&stored.thumbnailFileId=="small-id"&&
+                  stored.largeThumbnailFileId=="large-id"&&stored.imgW==1200&&stored.imgH==800,
+                  "媒体原图/大小缩略图元数据完整持久化");
             im::ChatProtocolMessage push; push.fromId=9;push.toId=1;push.msgId="push-1";
             push.content="收到";push.type=0;push.serverTime=100;push.conversationSeq=8;
             rt->handleIncomingChat(push);
@@ -358,7 +371,7 @@ int main()
             check(!repo.findMessage(1,"wrong-peer",&stored),"漫游响应 peer 与消息身份不一致时拒绝入库");
             rt->handleRoamMessages(9,{roamOut,roamIn},false,6);
             im::storage::MessagePage page;
-            check(repo.listConversation(1,9,nullptr,20,&page,&err)&&page.messages.size()==4,
+            check(repo.listConversation(1,9,nullptr,20,&page,&err)&&page.messages.size()==5,
                   "重复漫游由 msgId 幂等合并，不重复插入");
             const auto readOp=rt->markRead(9,8);
             CompletionRegistry::Record readDone;
@@ -368,6 +381,29 @@ int main()
             std::vector<im::dto::ConversationDto> conversations;
             check(repo.loadConversations(1,&conversations,&err)&&!conversations.empty()&&
                       conversations.front().unread==0,"已读后会话快照 unread=0");
+            im::FriendProtocolInfo friendInfo;friendInfo.friendId=9;friendInfo.nick="张三";
+            friendInfo.signature="Native friend";friendInfo.status=im::proto::STATUS_ONLINE;
+            rt->handleFriendInfo(friendInfo);
+            std::vector<im::dto::FriendDto> friends;
+            check(rt->loadFriends(&friends,&err)&&friends.size()==1&&
+                      friends.front().friendId==9&&friends.front().nick=="张三"&&friends.front().online,
+                  "FriendInfo 经协议桥落库并合并 Presence");
+            rt->handleFriendOffline(9);friends.clear();rt->loadFriends(&friends,&err);
+            check(friends.size()==1&&!friends.front().online,"Offline 只更新 Presence，不删除好友事实");
+            im::FriendProtocolRequest request;request.requesterId=9;request.targetId=1;
+            request.requesterNick="张三";request.createdAt=123;
+            rt->handleFriendRequestList({request});
+            std::vector<im::dto::FriendRequestDto> friendRequests;
+            check(rt->loadFriendRequests(&friendRequests,&err)&&friendRequests.size()==1&&
+                      friendRequests.front().direction==im::dto::RequestDirection::Incoming,
+                  "好友申请列表经统一入口幂等落库");
+            rt->handleFriendRequestList({request});friendRequests.clear();
+            check(rt->loadFriendRequests(&friendRequests,&err)&&friendRequests.size()==1,
+                  "重复好友申请按稳定 requestId 去重");
+            rt->handleDeleteFriendResult(im::proto::DELETE_FRIEND_SUCCESS,9);friends.clear();
+            check(rt->loadFriends(&friends,&err)&&friends.empty(),"删除成功回执后更新 Native 好友事实");
+            check(rt->consumeInvalidation(InvalidationBus::Domain::Friends)>0,
+                  "好友变化发布 Friends 失效通知");
             check(rt->consumeInvalidation(InvalidationBus::Domain::Messages)>0,
                   "发送与接收发布可合并消息失效通知");
             rt->destroy(); std::filesystem::remove_all(dir);

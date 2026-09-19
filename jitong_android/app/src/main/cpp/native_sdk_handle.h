@@ -21,9 +21,12 @@
 #include "client_core/ClientCore.h"
 #include "client_core/AccountSession.h"
 #include "client_core/storage/NativeDatabase.h"
+#include "client_core/storage/NativeRepository.h"
 #include "client_core/ClientCoreAuthTransport.h"
 #include "client_core/DeviceProofService.h"
 #include "client_core/runtime/ClientRuntime.h"
+#include "client_core/media/MediaService.h"
+#include "client_core/media/UploadTransport.h"
 
 #include "jni_observer.h"
 #include "jni_auth_platform.h"
@@ -47,6 +50,10 @@ struct NativeSdkHandle {
     // 销毁中标记：置位后 acquire() 一律返回 nullptr，拒绝新 API 调用
     std::atomic<bool> destroying{false};
 
+    // 每次媒体任务独立的协作式取消令牌；JNI 调用持 shared_ptr，移除表项后仍安全。
+    std::uint64_t nextMediaOperation = 1;
+    std::unordered_map<std::uint64_t, std::shared_ptr<std::atomic<bool>>> mediaOperations;
+
     // ---------------- P5-T06：认证会话（可选，setupAccount 后建立） ----------------
     // 声明顺序即依赖顺序；析构按逆序：session 先于 transport 先于 signer/store/clock。
     std::shared_ptr<im::account::SystemClock> clock;
@@ -57,6 +64,9 @@ struct NativeSdkHandle {
     std::shared_ptr<im::account::AccountSession> account;
     // 账号事件桥（AccountEvent → Kotlin）。shared_ptr 便于析构时先清引用。
     std::shared_ptr<void> accountObserver;
+    // nativeAccountSetup 时记录的服务端地址；一次性注册需要在账号会话之外复用同一连接目标。
+    std::string accountServerIp;
+    std::uint16_t accountServerPort = 0;
 
     // P7-G3：账号级运行时（唯一拥有业务服务、数据库与 completion executor）。
     // 析构顺序见 destroyHandleLocked：runtime 先于 db（runtime 依赖 db）。
@@ -67,6 +77,12 @@ struct NativeSdkHandle {
     std::shared_ptr<im::storage::NativeDatabase> db;
     // 当前 db 对应的账号（0 表示未打开）；迁移/自检接口据此知道操作哪个账号。
     std::int64_t dbOwnerId = 0;
+
+    // 分片上传编排（断点续传）：绑定同一 db + core，core/db 就绪后懒创建。
+    // 析构顺序：mediaService 先于 mediaRepo/uploadTransport（service 引用二者）。
+    std::shared_ptr<im::media::IUploadTransport> uploadTransport;
+    std::shared_ptr<im::storage::NativeRepository> mediaRepo;
+    std::shared_ptr<im::media::MediaService> mediaService;
     // 库密钥平台桥（仅 open 时经它取 key；保留 GlobalRef 供显式 deleteKey 使用）。
     std::shared_ptr<jt::JniDbKeyBridge> dbKeyBridge;
 

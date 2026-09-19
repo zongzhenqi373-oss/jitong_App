@@ -2,7 +2,7 @@ package com.jitong.im
 
 import com.jitong.im.net.Frame
 import com.jitong.im.net.Protocol
-import com.jitong.im.net.sha256Hex
+import com.jitong.im.util.sha256Hex
 import im.proto.Im
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals

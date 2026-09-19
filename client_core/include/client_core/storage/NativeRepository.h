@@ -69,11 +69,33 @@ struct SyncGapRow {
 };
 struct MessageSeqRange { std::int64_t from=0; std::int64_t to=0; };
 
+struct DownloadTaskRow {
+    std::string taskId;
+    std::string msgId;
+    std::string fileId;
+    std::string localPath;
+    std::string expectedSha256;
+    std::int64_t totalSize = 0;
+    std::int64_t transferred = 0;
+    std::int64_t generation = 0;
+};
+
 class NativeRepository {
 public:
     explicit NativeRepository(NativeDatabase* db) : m_db(db) {}
     explicit NativeRepository(std::shared_ptr<NativeDatabase> db)
         : m_dbOwner(std::move(db)), m_db(m_dbOwner.get()) {}
+
+    // 下载任务由加密库单 Writer 持久化；取消/完成是终态，不被启动恢复重新领取。
+    bool beginDownloadTask(std::int64_t ownerId,const std::string& taskId,
+                           const std::string& msgId,const std::string& fileId,
+                           const std::string& localPath,std::int64_t generation,
+                           std::string* err=nullptr);
+    bool finishDownloadTask(std::int64_t ownerId,const std::string& taskId,
+                            std::int64_t generation,int state,std::int64_t transferred,
+                            std::string* err=nullptr);
+    bool listRecoverableDownloads(std::int64_t ownerId,std::vector<DownloadTaskRow>* out,
+                                  std::string* err=nullptr);
 
     /**
      * 接收消息提交（Inbox 统一入口：Ack/Push/离线/漫游都走这里）。
@@ -185,6 +207,49 @@ public:
     /** 从权威消息表按索引扫描并压缩为已到达 seq 区间，用于 SyncTracker 冷启动恢复。 */
     bool loadMessageSeqRanges(std::int64_t ownerId,std::int64_t conversationId,
                               std::vector<MessageSeqRange>* out,std::string* err = nullptr);
+
+    // ---------------- 分片上传草稿（P7 媒体断点续传） ----------------
+
+    /** 登记/复用上传草稿（同 owner+msgId+variant 幂等：已存在则保留进度，不重置）。 */
+    bool upsertUploadDraft(std::int64_t ownerId, const im::dto::UploadDraftDto& d,
+                           bool* inserted = nullptr, std::string* err = nullptr);
+
+    /** 写入服务端会话信息（uploadId/chunkSize/chunkCount），状态 Pending→Uploading。 */
+    bool setUploadDraftSession(std::int64_t ownerId, const std::string& msgId,
+                               im::dto::MediaVariant variant, const std::string& uploadId,
+                               std::int64_t chunkSize, std::int32_t chunkCount,
+                               std::string* err = nullptr);
+
+    /** 确认一个分片完成（幂等：重复分片号不重复记录）。 */
+    bool markUploadChunkDone(std::int64_t ownerId, const std::string& msgId,
+                             im::dto::MediaVariant variant, std::int32_t chunkIndex,
+                             std::string* err = nullptr);
+
+    /** finalize 成功：回填 file_id，状态→Finalized（同事务）。 */
+    bool setUploadDraftFileId(std::int64_t ownerId, const std::string& msgId,
+                              im::dto::MediaVariant variant, const std::string& fileId,
+                              std::string* err = nullptr);
+
+    /** 服务端会话丢失（404/410）时重置：换 upload_id、清空分片进度、回到 Uploading。 */
+    bool resetUploadDraftForNewSession(std::int64_t ownerId, const std::string& msgId,
+                                       im::dto::MediaVariant variant, const std::string& uploadId,
+                                       std::int64_t chunkSize, std::int32_t chunkCount,
+                                       std::string* err = nullptr);
+
+    /** 状态推进（Sent/Cancelled/Failed/Uploading 等），终态只允许从非终态进入。 */
+    bool setUploadDraftState(std::int64_t ownerId, const std::string& msgId,
+                             im::dto::MediaVariant variant, im::dto::UploadDraftState state,
+                             std::int32_t errorCode, std::string* err = nullptr);
+
+    /** 读单条草稿。不存在返回 false。 */
+    bool getUploadDraft(std::int64_t ownerId, const std::string& msgId,
+                        im::dto::MediaVariant variant, im::dto::UploadDraftDto* out,
+                        std::string* err = nullptr);
+
+    /** 启动恢复扫描：某 owner 全部活跃草稿（Pending/Uploading/Finalized/Failed）。 */
+    bool loadActiveUploadDrafts(std::int64_t ownerId,
+                                std::vector<im::dto::UploadDraftDto>* out,
+                                std::string* err = nullptr);
 
 private:
     static bool mergeIncoming(sqlite3* db, const im::dto::MessageDto& m,

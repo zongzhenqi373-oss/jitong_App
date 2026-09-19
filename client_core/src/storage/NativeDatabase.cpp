@@ -252,6 +252,69 @@ CommandResult NativeDatabase::submitSync(const DbCommandQueue::WriteFn& fn,
     return r.command;
 }
 
+void NativeDatabase::setCutoverDirtyListener(
+    std::function<void(const CutoverJournalSnapshot&)> listener)
+{
+    std::lock_guard<std::mutex> lk(m_dirtyListenerMutex);
+    m_dirtyListener = std::move(listener);
+}
+
+CommandResult NativeDatabase::submitBusinessSync(const DbCommandQueue::WriteFn& fn,
+                                                  std::chrono::milliseconds timeout,
+                                                  bool* timedOut)
+{
+    if (!fn) return CommandResult::SqlFailed;
+    auto dirtyMarked = std::make_shared<bool>(false);
+    const CommandResult result = submitSync([fn, dirtyMarked](sqlite3* db) {
+        // transaction hook：首次 Native 业务事务与 NO_WRITE→DIRTY 必须原子提交。
+        sqlite3_stmt* read = nullptr;
+        if (sqlite3_prepare_v2(db, "SELECT epoch,state FROM cutover_journal ORDER BY epoch DESC LIMIT 1",
+                               -1, &read, nullptr) != SQLITE_OK || !read) return false;
+        int state = -1;
+        std::int64_t epoch = 0;
+        if (sqlite3_step(read) == SQLITE_ROW) {
+            epoch = sqlite3_column_int64(read, 0);
+            state = sqlite3_column_int(read, 1);
+        }
+        sqlite3_finalize(read);
+        // 有 journal 时只允许已承诺 Native 的状态发生业务写；PREPARED/LEGACY fail-close。
+        if (state == static_cast<int>(CutoverJournalState::LegacyActive) ||
+            state == static_cast<int>(CutoverJournalState::Prepared)) return false;
+        if (state == static_cast<int>(CutoverJournalState::NativeCommittedNoWrite)) {
+            sqlite3_stmt* mark = nullptr;
+            const char* sql = "UPDATE cutover_journal SET state=3,dirty=1,updated_at="
+                              "MAX(updated_at+1,CAST(strftime('%s','now') AS INTEGER)) "
+                              "WHERE epoch=?1 AND state=2";
+            if (sqlite3_prepare_v2(db, sql, -1, &mark, nullptr) != SQLITE_OK || !mark) return false;
+            sqlite3_bind_int64(mark, 1, epoch);
+            const bool marked = sqlite3_step(mark) == SQLITE_DONE && sqlite3_changes(db) == 1;
+            sqlite3_finalize(mark);
+            if (!marked) return false;
+            *dirtyMarked = true;
+        }
+        // 无 journal 仅用于 cutover 前的 Native 影子业务专项测试；生产 selector 不会选 Native。
+        return fn(db);
+    }, timeout, timedOut);
+
+    // 仅在本次事务真正把 NO_WRITE→DIRTY 提交成功后，回读提交后的完整快照并通知平台。
+    // 通知失败不影响 DB 事实；强杀窗口由冷启动双证据校验 fail-close 为 Repair。
+    if (result == CommandResult::Ok && *dirtyMarked) {
+        std::function<void(const CutoverJournalSnapshot&)> listener;
+        {
+            std::lock_guard<std::mutex> lk(m_dirtyListenerMutex);
+            listener = m_dirtyListener;
+        }
+        if (listener) {
+            CutoverJournalSnapshot snap;
+            if (queryCutoverJournal(m_ownerId.load(), &snap) && snap.present &&
+                snap.state == CutoverJournalState::NativeCommittedDirty) {
+                listener(snap);
+            }
+        }
+    }
+    return result;
+}
+
 ReadResult NativeDatabase::withRead(const std::function<void(sqlite3*)>& fn,
                                     std::chrono::milliseconds waitFor)
 {
@@ -441,6 +504,53 @@ MigrationSubmitOutcome NativeDatabase::submitConversationBatch(
     return out;
 }
 
+MigrationSubmitOutcome NativeDatabase::submitLegacyDeltaBatch(
+    std::int64_t ownerId, std::int64_t epoch, std::int64_t expectedAfter,
+    const std::vector<LegacyDeltaChange>& changes, std::chrono::milliseconds timeout)
+{
+    MigrationSubmitOutcome out;
+    if (ownerId != this->ownerId() || ownerId <= 0) {
+        out.error = "owner 不匹配";
+        return out;
+    }
+    auto changesPtr = std::make_shared<std::vector<LegacyDeltaChange>>(changes);
+    auto innerErr = std::make_shared<std::string>();
+    auto committed = std::make_shared<std::int64_t>(0);
+    bool timedOut = false;
+    out.command = submitSync([ownerId, epoch, expectedAfter, changesPtr, innerErr, committed](sqlite3* db) {
+        MigrationState state = MigrationState::Disabled;
+        if (!MigrationImporter::getState(db, ownerId, &state) || state != MigrationState::ShadowImport) {
+            *innerErr = "迁移状态非 shadow_import，拒绝 delta";
+            return false;
+        }
+        return MigrationImporter::applyLegacyDeltaBatch(db, ownerId, epoch, expectedAfter,
+                                                        *changesPtr, committed.get(), innerErr.get());
+    }, timeout, &timedOut);
+    out.timedOut = timedOut;
+    out.ok = !timedOut && out.command == CommandResult::Ok;
+    out.imported = out.ok ? changes.size() : 0;
+    out.committedCheckpoint = out.ok ? *committed : 0;
+    out.error = timedOut ? "等待 Writer 超时，操作状态未确定" : *innerErr;
+    return out;
+}
+
+bool NativeDatabase::seedLegacyDeltaCheckpoint(std::int64_t ownerId,std::int64_t epoch,
+                                                std::int64_t baseline,std::int64_t updatedAt,
+                                                std::string* err)
+{
+    if(ownerId<=0||ownerId!=this->ownerId()){if(err)*err="owner 不匹配";return false;}
+    auto inner=std::make_shared<std::string>();bool timedOut=false;
+    const auto result=submitSync([ownerId,epoch,baseline,updatedAt,inner](sqlite3* db){
+        MigrationState state=MigrationState::Disabled;
+        if(!MigrationImporter::getState(db,ownerId,&state)||state!=MigrationState::ShadowImport){
+            *inner="迁移状态非 shadow_import，拒绝 baseline";return false;
+        }
+        return MigrationImporter::seedLegacyDeltaCheckpoint(db,epoch,baseline,updatedAt,inner.get());
+    },std::chrono::seconds(30),&timedOut);
+    if(err)*err=timedOut?"baseline 写入超时，结果未知":*inner;
+    return !timedOut&&result==CommandResult::Ok;
+}
+
 bool NativeDatabase::finishMigration(std::int64_t ownerId, const MigrationSummary& expected,
                                      MigrationSummary* actual, std::string* err)
 {
@@ -574,6 +684,126 @@ SelfTestOutcome NativeDatabase::runSelfTest(std::int64_t ownerId)
     });
     if (rr != ReadResult::Ok) out.error = std::string("读取失败：") + toString(rr);
     return out;
+}
+
+bool NativeDatabase::queryCutoverJournal(std::int64_t ownerId, CutoverJournalSnapshot* out)
+{
+    if (!out || ownerId <= 0 || ownerId != this->ownerId()) return false;
+    CutoverJournalSnapshot snapshot;
+    bool queryOk = false;
+    const auto rr = withRead([&](sqlite3* db) {
+        sqlite3_stmt* stmt = nullptr;
+        const char* sql = "SELECT epoch,state,high_water,schema_version,key_id,summary,updated_at "
+                          "FROM cutover_journal ORDER BY epoch DESC LIMIT 1";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK || !stmt) return;
+        const int step = sqlite3_step(stmt);
+        if (step == SQLITE_DONE) {
+            snapshot.present = false;
+            queryOk = true;
+        } else if (step == SQLITE_ROW) {
+            const int state = sqlite3_column_int(stmt, 1);
+            if (state >= 0 && state <= 3) {
+                snapshot.present = true;
+                snapshot.epoch = sqlite3_column_int64(stmt, 0);
+                snapshot.state = static_cast<CutoverJournalState>(state);
+                snapshot.highWater = sqlite3_column_int64(stmt, 2);
+                snapshot.schemaVersion = sqlite3_column_int(stmt, 3);
+                const auto* key = sqlite3_column_text(stmt, 4);
+                const auto* sum = sqlite3_column_text(stmt, 5);
+                snapshot.keyId = key ? reinterpret_cast<const char*>(key) : "";
+                snapshot.summary = sum ? reinterpret_cast<const char*>(sum) : "";
+                snapshot.updatedAt = sqlite3_column_int64(stmt, 6);
+                queryOk = snapshot.epoch > 0;
+            }
+        }
+        sqlite3_finalize(stmt);
+    });
+    if (rr != ReadResult::Ok || !queryOk) return false;
+    *out = std::move(snapshot);
+    return true;
+}
+
+bool NativeDatabase::advanceCutoverJournal(
+    std::int64_t ownerId, std::int64_t epoch, int expectedState, CutoverJournalState target,
+    std::int64_t highWater, int schemaVersion, const std::string& keyId,
+    const std::string& summary, std::int64_t updatedAt, std::string* err)
+{
+    if (ownerId <= 0 || ownerId != this->ownerId() || epoch <= 0 || highWater < 0 ||
+        schemaVersion <= 0 || keyId.empty() || updatedAt <= 0) {
+        if (err) *err = "cutover 参数非法";
+        return false;
+    }
+    auto inner = std::make_shared<std::string>();
+    bool timedOut = false;
+    const auto result = submitSync(
+        [epoch, expectedState, target, highWater, schemaVersion, keyId, summary, updatedAt,
+         inner](sqlite3* db) {
+            sqlite3_stmt* read = nullptr;
+            int current = -1;
+            std::int64_t currentEpoch = 0;
+            std::int64_t currentHighWater = 0;
+            int currentSchema = 0;
+            std::string currentKey;
+            std::string currentSummary;
+            if (sqlite3_prepare_v2(db,
+                    "SELECT epoch,state,high_water,schema_version,key_id,summary "
+                    "FROM cutover_journal ORDER BY epoch DESC LIMIT 1",
+                    -1, &read, nullptr) != SQLITE_OK || !read) {
+                *inner = "读取 cutover journal 失败";
+                return false;
+            }
+            if (sqlite3_step(read) == SQLITE_ROW) {
+                currentEpoch = sqlite3_column_int64(read, 0);
+                current = sqlite3_column_int(read, 1);
+                currentHighWater = sqlite3_column_int64(read, 2);
+                currentSchema = sqlite3_column_int(read, 3);
+                const auto* oldKey = sqlite3_column_text(read, 4);
+                const auto* oldSummary = sqlite3_column_text(read, 5);
+                currentKey = oldKey ? reinterpret_cast<const char*>(oldKey) : "";
+                currentSummary = oldSummary ? reinterpret_cast<const char*>(oldSummary) : "";
+            }
+            sqlite3_finalize(read);
+            const int next = static_cast<int>(target);
+            if (current != expectedState || (current >= 0 && currentEpoch != epoch) ||
+                !((current == -1 && next == 0) || next == current || next == current + 1)) {
+                *inner = "cutover 状态/epoch 不匹配或发生跳级回退";
+                return false;
+            }
+            if (next == current && (currentHighWater != highWater || currentSchema != schemaVersion ||
+                                    currentKey != keyId || currentSummary != summary)) {
+                *inner = "cutover 同状态重放内容不一致";
+                return false;
+            }
+            sqlite3_stmt* write = nullptr;
+            const char* sql = "INSERT INTO cutover_journal(epoch,state,high_water,schema_version,"
+                              "key_id,summary,dirty,updated_at) VALUES(?,?,?,?,?,?,?,?) "
+                              "ON CONFLICT(epoch) DO UPDATE SET state=excluded.state,"
+                              "high_water=excluded.high_water,schema_version=excluded.schema_version,"
+                              "key_id=excluded.key_id,summary=excluded.summary,dirty=excluded.dirty,"
+                              "updated_at=excluded.updated_at";
+            if (sqlite3_prepare_v2(db, sql, -1, &write, nullptr) != SQLITE_OK || !write) {
+                *inner = "准备 cutover journal 写入失败";
+                return false;
+            }
+            sqlite3_bind_int64(write, 1, epoch);
+            sqlite3_bind_int(write, 2, next);
+            sqlite3_bind_int64(write, 3, highWater);
+            sqlite3_bind_int(write, 4, schemaVersion);
+            sqlite3_bind_text(write, 5, keyId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(write, 6, summary.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(write, 7, next == 3 ? 1 : 0);
+            sqlite3_bind_int64(write, 8, updatedAt);
+            const bool ok = sqlite3_step(write) == SQLITE_DONE;
+            if (!ok) *inner = "写入 cutover journal 失败";
+            sqlite3_finalize(write);
+            return ok;
+        }, std::chrono::seconds(30), &timedOut);
+    if (timedOut) {
+        if (err) *err = "cutover journal 写入超时，结果未知";
+        return false;
+    }
+    if (err) *err = *inner;
+    return result == CommandResult::Ok;
 }
 
 } // namespace storage

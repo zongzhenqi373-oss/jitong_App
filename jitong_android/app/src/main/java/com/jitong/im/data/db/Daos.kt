@@ -25,9 +25,15 @@ interface MessageDao {
         if (entity.type == 0 && !entity.content.isNullOrEmpty()) {
             val py = PinyinIndex.of(entity.content)
             insertFts(MessageFtsEntity(entity.content, py.full, py.initials, entity.msgId))
+            // Room v10 delta 快照必须包含已落库的拼音列。消息 INSERT 触发器先于 FTS 写入，
+            // 因此在同一 @Transaction 内做一次无语义 touch，生成包含 FTS 的最终 UPSERT 快照。
+            touchForDelta(entity.ownerId, entity.msgId)
         }
         return true
     }
+
+    @Query("UPDATE messages SET status = status WHERE ownerId = :ownerId AND msgId = :msgId")
+    suspend fun touchForDelta(ownerId: Int, msgId: String)
 
     @Query("SELECT COUNT(*) FROM messages_fts")
     suspend fun ftsCount(): Int
@@ -227,4 +233,27 @@ interface ConversationDao {
             bump(id, lastMsg, ts, if (incrUnread) 1 else 0)
         }
     }
+}
+
+@Dao
+interface LegacyChangeLogDao {
+    @Query("SELECT COALESCE(MAX(changeSeq), 0) FROM legacy_change_log WHERE ownerId = :ownerId")
+    suspend fun highWater(ownerId: Int): Long
+
+    @Query("""SELECT * FROM legacy_change_log WHERE ownerId = :ownerId AND changeSeq > :after
+        ORDER BY changeSeq ASC LIMIT :limit""")
+    suspend fun page(ownerId: Int, after: Long, limit: Int): List<LegacyChangeLogEntity>
+
+    /** Native 已持久化 checkpoint 后才可清理；未确认的 tombstone 不能提前删除。 */
+    @Query("DELETE FROM legacy_change_log WHERE ownerId = :ownerId AND changeSeq <= :through")
+    suspend fun deleteThrough(ownerId: Int, through: Long): Int
+}
+
+@Dao
+interface LegacyCutoverControlDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(value: LegacyCutoverControlEntity)
+
+    @Query("SELECT * FROM legacy_cutover_control WHERE ownerId=:ownerId")
+    suspend fun get(ownerId: Int): LegacyCutoverControlEntity?
 }
